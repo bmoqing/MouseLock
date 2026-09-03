@@ -1,0 +1,26 @@
+# 构建输出
+bin/
+obj/
+publish/
+
+# C++ 构建产物（native）
+native/*.obj
+native/*.res
+native/*.exp
+native/*.lib
+native/*.pdb
+native/MouseLock.exe
+native/vc*.pdb
+
+# 运行时生成的配置文件
+config.json
+native/config.json
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# 日志
+*.log

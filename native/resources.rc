@@ -1,0 +1,11 @@
+#pragma code_page(65001)
+
+#define IDI_MOUSELOCK 101
+
+#ifndef RT_MANIFEST
+#define RT_MANIFEST 24
+#endif
+
+IDI_MOUSELOCK ICON "MouseLock.ico"
+
+1 RT_MANIFEST "app.manifest"
