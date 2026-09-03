@@ -1,8 +1,13 @@
-# MouseLock
+<p align="center">
+  <img src="https://raw.githubusercontent.com/bmoqing/MouseLock/refs/heads/main/docs/MouseLock.ico" alt="MouseLock" width="128" height="128">
+</p>
 
-一款专为多屏幕用户设计的鼠标锁定工具。它可以将鼠标限制在当前使用的屏幕范围内，避免在激烈游戏、演示汇报或精细绘图过程中，鼠标意外滑到其他屏幕造成误操作或窗口失焦。
+<h1 align="center">MouseLock</h1>
 
-采用原生 C++（Win32）编写，单文件可执行，运行时内存占用极低（私有内存约 2~3 MB）。
+<p align="center">
+  <strong>一款专为多屏幕用户设计的鼠标锁定工具。它可以将鼠标限制在当前使用的屏幕范围内，避免在激烈游戏、演示汇报或精细绘图过程中，鼠标意外滑到其他屏幕造成误操作或窗口失焦。</strong>
+</p>
+
 
 ## 核心功能
 
