@@ -277,11 +277,11 @@ namespace
     {
         g_kbdHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
 
+        
         DWORD events[] = {
             EVENT_SYSTEM_FOREGROUND,
             EVENT_SYSTEM_DESKTOPSWITCH,
-            EVENT_SYSTEM_MOVESIZEEND,
-            EVENT_SYSTEM_CAPTURESTART
+            EVENT_SYSTEM_MOVESIZEEND
         };
         for (DWORD evt : events)
         {
