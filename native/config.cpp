@@ -1,8 +1,40 @@
 // 配置模块实现：手写 JSON 解析/序列化 + 快捷键格式化。
 #include "config.h"
+#include "logger.h"
 
 #include <windows.h>
 #include <map>
+
+namespace
+{
+    std::string WideToUtf8(const std::wstring& value)
+    {
+        if (value.empty())
+            return {};
+        int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+            nullptr, 0, nullptr, nullptr);
+        if (size <= 0)
+            return {};
+        std::string result(size, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+            result.data(), size, nullptr, nullptr);
+        return result;
+    }
+
+    std::wstring Utf8ToWide(const std::string& value)
+    {
+        if (value.empty())
+            return {};
+        int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+            static_cast<int>(value.size()), nullptr, 0);
+        if (size <= 0)
+            return {};
+        std::wstring result(size, L'\0');
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+            static_cast<int>(value.size()), result.data(), size);
+        return result;
+    }
+}
 
 // ---------------- 极简 JSON DOM ----------------
 
@@ -328,6 +360,8 @@ namespace
 
     std::wstring vkToText(int vk)
     {
+        if (vk == VK_XBUTTON1) return L"鼠标侧键4";
+        if (vk == VK_XBUTTON2) return L"鼠标侧键5";
         switch (vk)
         {
         case 0x25: return L"←";
@@ -355,37 +389,113 @@ namespace
             return std::wstring(1, (wchar_t)c);
         return L"键 " + std::to_wstring(vk);
     }
+
+    constexpr LONGLONG kMaxConfigFileSize = 1024 * 1024;
+
+    AppConfig DefaultConfig()
+    {
+        AppConfig cfg;
+        cfg.unlock.modifiers = { Modifier::Control };
+        cfg.unlock.key = 0;
+        cfg.jumpLeft.modifiers = { Modifier::Control, Modifier::Alt };
+        cfg.jumpLeft.key = 0x25;
+        cfg.jumpRight.modifiers = { Modifier::Control, Modifier::Alt };
+        cfg.jumpRight.key = 0x27;
+        return cfg;
+    }
+
+    void PreserveCorruptConfig(const std::wstring& path)
+    {
+        for (int index = 0; index < 100; ++index)
+        {
+            std::wstring backup = path + L".bad";
+            if (index > 0)
+                backup += L"." + std::to_wstring(index);
+
+            SetLastError(ERROR_SUCCESS);
+            if (GetFileAttributesW(backup.c_str()) != INVALID_FILE_ATTRIBUTES)
+                continue;
+            if (GetLastError() != ERROR_FILE_NOT_FOUND)
+                continue;
+
+            if (CopyFileW(path.c_str(), backup.c_str(), TRUE))
+            {
+                LOG_WARN(L"配置文件疑似损坏，已保留副本：%s", backup.c_str());
+                return;
+            }
+
+            LOG_WARN(L"配置文件疑似损坏，但无法创建副本 %s (错误码 %d)",
+                backup.c_str(), GetLastError());
+            return;
+        }
+
+        LOG_WARN(L"配置文件疑似损坏，但可用的 .bad 副本名称已耗尽：%s", path.c_str());
+    }
 }
 
 // ---------------- 对外接口 ----------------
 
 AppConfig LoadConfig(const std::wstring& path)
 {
-    AppConfig cfg;
-    // 默认值（与旧版一致）
-    cfg.unlock.modifiers = { Modifier::Control };
-    cfg.unlock.key = 0;
-    cfg.jumpLeft.modifiers = { Modifier::Control, Modifier::Alt };
-    cfg.jumpLeft.key = 0x25;
-    cfg.jumpRight.modifiers = { Modifier::Control, Modifier::Alt };
-    cfg.jumpRight.key = 0x27;
+    AppConfig cfg = DefaultConfig();
 
     HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE)
+    {
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+            LOG_WARN(L"读取配置文件失败，将使用默认配置：%s (错误码 %d)", path.c_str(), error);
         return cfg;
-    DWORD size = GetFileSize(h, nullptr);
+    }
+
+    LARGE_INTEGER fileSize{};
+    if (!GetFileSizeEx(h, &fileSize))
+    {
+        DWORD error = GetLastError();
+        CloseHandle(h);
+        LOG_WARN(L"读取配置文件大小失败，将使用默认配置：%s (错误码 %d)", path.c_str(), error);
+        PreserveCorruptConfig(path);
+        return cfg;
+    }
+    if (fileSize.QuadPart < 0 || fileSize.QuadPart > kMaxConfigFileSize)
+    {
+        CloseHandle(h);
+        LOG_WARN(L"配置文件超过允许大小，将使用默认配置：%s (大小 %lld 字节)",
+            path.c_str(), fileSize.QuadPart);
+        PreserveCorruptConfig(path);
+        return cfg;
+    }
+
+    DWORD size = static_cast<DWORD>(fileSize.QuadPart);
     std::string text(size, '\0');
     DWORD read = 0;
-    ReadFile(h, text.data(), size, &read, nullptr);
+    BOOL readOk = size == 0 || ReadFile(h, text.data(), size, &read, nullptr);
     CloseHandle(h);
-    if (read < size)
-        text.resize(read);
+    if (!readOk || read != size)
+    {
+        DWORD error = readOk ? ERROR_READ_FAULT : GetLastError();
+        LOG_WARN(L"读取配置文件内容不完整，将使用默认配置：%s (已读 %lu/%lu，错误码 %d)",
+            path.c_str(), read, size, error);
+        PreserveCorruptConfig(path);
+        return cfg;
+    }
 
     JsonValue root;
     Parser p{ text };
-    if (!p.parseValue(root) || root.type != JsonValue::Type::Object)
+    if (!p.parseValue(root))
+    {
+        LOG_WARN(L"配置文件 JSON 解析失败，将使用默认配置：%s", path.c_str());
+        PreserveCorruptConfig(path);
         return cfg;
+    }
+    p.skipWs();
+    if (root.type != JsonValue::Type::Object || p.i != text.size())
+    {
+        LOG_WARN(L"配置文件 JSON 根节点或尾部内容无效，将使用默认配置：%s", path.c_str());
+        PreserveCorruptConfig(path);
+        return cfg;
+    }
 
     if (const JsonValue* v = find(root.obj, "UnlockHotkey"))
         if (v->type == JsonValue::Type::Null)
@@ -411,11 +521,51 @@ AppConfig LoadConfig(const std::wstring& path)
     if (const JsonValue* v = find(root.obj, "AutoStart"))
         if (v->type == JsonValue::Type::Bool)
             cfg.autoStart = v->b;
+    if (const JsonValue* v = find(root.obj, "CenterLock"))
+        if (v->type == JsonValue::Type::Bool)
+            cfg.centerLock = v->b;
+    if (const JsonValue* v = find(root.obj, "ForegroundBinding"))
+        if (v->type == JsonValue::Type::Bool)
+            cfg.foregroundBinding = v->b;
+    if (const JsonValue* v = find(root.obj, "BoundWindowPaths"))
+        if (v->type == JsonValue::Type::Array)
+            for (const auto& item : v->arr)
+                if (item.type == JsonValue::Type::String)
+                {
+                    std::wstring path = Utf8ToWide(item.str);
+                    if (!path.empty())
+                        cfg.boundWindowPaths.push_back(std::move(path));
+                }
+    if (const JsonValue* v = find(root.obj, "BoundProcessPaths"))
+        if (v->type == JsonValue::Type::Array)
+            for (const auto& item : v->arr)
+                if (item.type == JsonValue::Type::String)
+                {
+                    std::wstring path = Utf8ToWide(item.str);
+                    if (!path.empty())
+                        cfg.boundProcessPaths.push_back(std::move(path));
+                }
+
+    // 旧版本把同一个应用拆成窗口路径和进程路径保存。两者运行时效果相同，
+    // 升级后统一合并到应用路径，避免设置页重复显示。
+    for (const auto& path : cfg.boundProcessPaths)
+    {
+        bool exists = false;
+        for (const auto& existing : cfg.boundWindowPaths)
+            if (CompareStringOrdinal(existing.c_str(), -1, path.c_str(), -1, TRUE) == CSTR_EQUAL)
+            {
+                exists = true;
+                break;
+            }
+        if (!exists)
+            cfg.boundWindowPaths.push_back(path);
+    }
+    cfg.boundProcessPaths.clear();
 
     return cfg;
 }
 
-void SaveConfig(const std::wstring& path, const AppConfig& cfg)
+bool SaveConfig(const std::wstring& path, const AppConfig& cfg)
 {
     JsonValue root;
     root.type = JsonValue::Type::Object;
@@ -435,18 +585,60 @@ void SaveConfig(const std::wstring& path, const AppConfig& cfg)
     root.obj["StartSilent"].b = cfg.startSilent;
     root.obj["AutoStart"].type = JsonValue::Type::Bool;
     root.obj["AutoStart"].b = cfg.autoStart;
+    root.obj["CenterLock"].type = JsonValue::Type::Bool;
+    root.obj["CenterLock"].b = cfg.centerLock;
+    root.obj["ForegroundBinding"].type = JsonValue::Type::Bool;
+    root.obj["ForegroundBinding"].b = cfg.foregroundBinding;
+    root.obj["BoundWindowPaths"].type = JsonValue::Type::Array;
+    for (const auto& path : cfg.boundWindowPaths)
+    {
+        JsonValue item;
+        item.type = JsonValue::Type::String;
+        item.str = WideToUtf8(path);
+        root.obj["BoundWindowPaths"].arr.push_back(std::move(item));
+    }
+    // 保留旧字段作为空数组，便于旧版本读取；新版本只使用统一的应用路径。
+    root.obj["BoundProcessPaths"].type = JsonValue::Type::Array;
 
     std::string out;
     writeValue(out, root, 0);
 
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+    std::wstring tempPath = path + L".tmp";
+    HANDLE h = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, nullptr,
         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h != INVALID_HANDLE_VALUE)
+    if (h == INVALID_HANDLE_VALUE)
     {
-        DWORD written = 0;
-        WriteFile(h, out.data(), (DWORD)out.size(), &written, nullptr);
-        CloseHandle(h);
+        LOG_ERROR(L"配置保存失败：无法创建临时文件 %s (错误码 %d)",
+            tempPath.c_str(), GetLastError());
+        return false;
     }
+
+    DWORD written = 0;
+    bool success = WriteFile(h, out.data(), static_cast<DWORD>(out.size()), &written, nullptr) != FALSE &&
+        written == out.size();
+    if (success && !FlushFileBuffers(h))
+        success = false;
+    DWORD writeError = success ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(h);
+
+    if (!success)
+    {
+        DeleteFileW(tempPath.c_str());
+        LOG_ERROR(L"配置保存失败：写入临时文件失败 (错误码 %d)", writeError);
+        return false;
+    }
+
+    if (!MoveFileExW(tempPath.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        DWORD moveError = GetLastError();
+        DeleteFileW(tempPath.c_str());
+        LOG_ERROR(L"配置保存失败：替换正式文件失败 (错误码 %d)", moveError);
+        return false;
+    }
+
+    LOG_INFO(L"配置已保存");
+    return true;
 }
 
 std::wstring FormatHotkey(const Hotkey& hk)

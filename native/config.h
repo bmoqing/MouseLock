@@ -12,7 +12,8 @@ enum class Modifier
     Shift = 2
 };
 
-// 一个快捷键：若干修饰键 + 一个主键（VK 码，0 表示仅修饰键）
+// 一个快捷键：若干修饰键 + 一个主键（VK 码，0 表示仅修饰键）。
+// VK_XBUTTON1/2 分别表示鼠标侧键 4/5。
 // key == -1 表示“未设置”（对应旧版 null）
 struct Hotkey
 {
@@ -31,13 +32,18 @@ struct AppConfig
     Hotkey jumpRight; // 跳转下一屏幕
     bool startSilent = false;
     bool autoStart = false;
+    bool centerLock = false;
+    bool foregroundBinding = false;
+    // 统一保存应用程序可执行文件路径；boundProcessPaths 仅为旧配置兼容保留。
+    std::vector<std::wstring> boundWindowPaths;
+    std::vector<std::wstring> boundProcessPaths;
 };
 
 // 从 JSON 文本加载配置；失败或缺失时回退默认值。
 AppConfig LoadConfig(const std::wstring& path);
 
-// 将配置写回 JSON 文本（格式上与旧版可互相读取）。
-void SaveConfig(const std::wstring& path, const AppConfig& cfg);
+// 将配置写回 JSON 文本（格式上与旧版可互相读取）。返回是否成功。
+bool SaveConfig(const std::wstring& path, const AppConfig& cfg);
 
 // 把快捷键格式化为可读文本（如 "Ctrl + Alt + ←"）。
 std::wstring FormatHotkey(const Hotkey& hk);
