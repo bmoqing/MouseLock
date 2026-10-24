@@ -162,21 +162,40 @@ bool Locker::Jump(int direction)
     return LockToScreenAt(cx, cy, m_centerLocked);
 }
 
-void Locker::Revalidate()
+void Locker::Revalidate(bool forceCursorCorrection, const POINT* observedCursor)
 {
-    // ClipCursor 失效时恢复锁定，但不要在鼠标按下期间改变系统光标状态。
-    // Adobe 项目面板会把按下期间的额外光标变化解释为拖动。
     if (!m_locked)
         return;
 
-    if (IsMouseButtonDown())
+    POINT cursor{};
+    if (observedCursor)
+        cursor = *observedCursor;
+    else if (!CheckWin32Warn(GetCursorPos(&cursor), L"Revalidate: GetCursorPos"))
         return;
 
-    if (IsClipCursorSetTo(m_lockedRect))
+    bool inside = cursor.x >= m_lockedRect.left && cursor.x < m_lockedRect.right &&
+        cursor.y >= m_lockedRect.top && cursor.y < m_lockedRect.bottom;
+    bool clipChanged = !IsClipCursorSetTo(m_lockedRect);
+    if (inside && !clipChanged)
         return;
 
-    // 重新应用 ClipCursor；只有区域确实变化或失效时才调用，避免每个
-    // 定时器周期都向目标应用注入一次可见的光标状态变化。
-    if (!CheckWin32Warn(ClipCursor(&m_lockedRect), L"Revalidate: ClipCursor"))
+    // 快速移动时，系统可能先报告一个已经越过边界的坐标。
+    // 只有确实越界才校正坐标，避免正常点击和拖动期间产生额外光标动作。
+    if (!inside && (forceCursorCorrection || clipChanged))
+    {
+        POINT corrected{
+            cursor.x < m_lockedRect.left ? m_lockedRect.left :
+                (cursor.x >= m_lockedRect.right ? m_lockedRect.right - 1 : cursor.x),
+            cursor.y < m_lockedRect.top ? m_lockedRect.top :
+                (cursor.y >= m_lockedRect.bottom ? m_lockedRect.bottom - 1 : cursor.y)
+        };
+        if (!CheckWin32Warn(SetCursorPos(corrected.x, corrected.y),
+                L"Revalidate: SetCursorPos"))
+            return;
+    }
+
+    // 区域被外部程序清除或替换时重新应用；只有区域实际变化才调用。
+    if (clipChanged &&
+        !CheckWin32Warn(ClipCursor(&m_lockedRect), L"Revalidate: ClipCursor"))
         return;
 }

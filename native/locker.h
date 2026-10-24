@@ -20,8 +20,9 @@ public:
     // 跳转到相邻屏幕（-1 上一个，+1 下一个）
     bool Jump(int direction);
 
-    // 备用校验：光标越界时夹回并重新裁剪
-    void Revalidate();
+    // 备用校验：裁剪区域被外部修改或光标越界时立即恢复。
+    // 鼠标按键按下期间也允许恢复，避免快速移动时穿过屏幕边界。
+    void Revalidate(bool forceCursorCorrection = false, const POINT* observedCursor = nullptr);
 
 private:
     bool m_locked = false;

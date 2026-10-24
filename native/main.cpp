@@ -83,6 +83,24 @@ namespace
     constexpr int kBackupIntervalMs = 25;   // 25ms，提升前台切换和状态同步响应速度
     constexpr UINT kMsgJump = WM_APP + 2;
     constexpr UINT kMsgUnlockSync = WM_APP + 3;
+    constexpr UINT kMsgMouseRevalidate = WM_APP + 4;
+    std::atomic_bool g_mouseRevalidatePosted{ false };
+    std::atomic_long g_lastMouseX{ 0 };
+    std::atomic_long g_lastMouseY{ 0 };
+    std::atomic_bool g_lastMousePositionValid{ false };
+    std::atomic_uint g_mousePositionSequence{ 0 };
+
+    void RequestMouseRevalidate()
+    {
+        if (!g_hwnd)
+            return;
+
+        bool expected = false;
+        if (!g_mouseRevalidatePosted.compare_exchange_strong(expected, true))
+            return;
+        if (!PostMessageW(g_hwnd, kMsgMouseRevalidate, 0, 0))
+            g_mouseRevalidatePosted.store(false);
+    }
 
     void RequestUnlockSync()
     {
@@ -587,6 +605,15 @@ namespace
         if (nCode == HC_ACTION)
         {
             auto* mouse = reinterpret_cast<MSLLHOOKSTRUCT*>(lp);
+            g_lastMouseX.store(mouse->pt.x, std::memory_order_relaxed);
+            g_lastMouseY.store(mouse->pt.y, std::memory_order_relaxed);
+            g_mousePositionSequence.fetch_add(1, std::memory_order_release);
+            g_lastMousePositionValid.store(true, std::memory_order_release);
+            // WM_MOUSEMOVE 不一定能在主线程每个定时周期内及时采样到。
+            // 将校验请求合并投递，快速甩动时也能尽快恢复 ClipCursor。
+            if (wp == WM_MOUSEMOVE)
+                RequestMouseRevalidate();
+
             int button = MouseButtonVkFromHook(wp, *mouse);
             if (button != 0)
             {
@@ -1447,6 +1474,31 @@ namespace
             ReconcileUnlockState();
             return 0;
 
+        case kMsgMouseRevalidate:
+        {
+            const unsigned int sequenceAtStart =
+                g_mousePositionSequence.load(std::memory_order_acquire);
+            if (g_enabled && !g_unlockedByHold && !g_settingsOpen)
+            {
+                POINT observed{};
+                const POINT* observedPtr = nullptr;
+                if (g_lastMousePositionValid.load(std::memory_order_acquire))
+                {
+                    observed.x = static_cast<LONG>(g_lastMouseX.load(std::memory_order_relaxed));
+                    observed.y = static_cast<LONG>(g_lastMouseY.load(std::memory_order_relaxed));
+                    observedPtr = &observed;
+                }
+                g_locker.Revalidate(true, observedPtr);
+            }
+            g_mouseRevalidatePosted.store(false);
+            // If the hook recorded another move while this message was being
+            // handled, schedule one more pass so the newest coordinate is not
+            // left waiting for the 25ms backup timer.
+            if (g_mousePositionSequence.load(std::memory_order_acquire) != sequenceAtStart)
+                RequestMouseRevalidate();
+            return 0;
+        }
+
         case WM_TRAYICON:
         {
             if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU)
@@ -1461,7 +1513,7 @@ namespace
             if (wp == kTimerBackup && !g_settingsOpen)
             {
                 ReconcileForegroundWindow();
-                g_locker.Revalidate();
+                g_locker.Revalidate(false);
                 ReconcileUnlockState();
                 ReassertLock();
                 // 登录/开机时任务栏可能尚未就绪，NIM_ADD 会静默失败，这里持续重试
