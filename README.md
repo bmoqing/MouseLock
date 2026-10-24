@@ -1,4 +1,9 @@
 <p align="center">
+  <a href="README.en.md">🇺🇸 English</a> |
+  <a href="README.md">🇨🇳 中文</a>
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/bmoqing/MouseLock/refs/heads/main/docs/MouseLock.ico" alt="MouseLock" width="128" height="128">
 </p>
 
