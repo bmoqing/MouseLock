@@ -34,7 +34,7 @@
 - **Smart locking**: Keeps the mouse cursor inside the current monitor.
 - **Center locking**: Optionally locks the cursor to the geometric center of the current monitor, calculated from each monitor's actual resolution.
 - **Foreground application binding**: Select applications from a unified list. The list is deduplicated by executable path; when a bound application is in the foreground, the cursor is locked to the monitor containing that application.
-- **Temporary unlock**: Hold a configured hotkey to unlock temporarily. The lock is restored when the hotkey is released.
+- **Hotkey controls**: Toggle locking with a shortcut, or hold a separate shortcut to unlock temporarily until it is released.
 - **Quick switching**: Jump to the previous or next monitor with one shortcut. The lock moves to the destination monitor, and keyboard shortcuts support mouse buttons 4 and 5.
 - **Cross-monitor window dragging**: When a bound window is moved to another monitor, the lock area switches automatically instead of keeping the old monitor boundary.
 - **Resilient locking**: Uses system event hooks (`SetWinEventHook`) and periodic validation to restore the lock if another application removes it.
@@ -45,11 +45,12 @@
 
 | Function | Default hotkey |
 | --- | --- |
+| Toggle mouse lock | `Ctrl + Alt + L` |
 | Temporary unlock (hold) | `Ctrl` |
 | Jump to previous monitor | `Ctrl + Alt + Left` |
 | Jump to next monitor | `Ctrl + Alt + Right` |
 
-All three hotkeys can be customized in Settings. The input fields support keyboard keys, mouse buttons 4 and 5, and modifier combinations. Use the buttons on the right to restore defaults or clear a shortcut. A shortcut can be left empty to disable it. Changes are saved and applied immediately.
+Mouse locking is off by default when the program starts. All four hotkeys can be customized in Settings. The input fields support keyboard keys, mouse buttons 4 and 5, and modifier combinations. Use the buttons on the right to restore defaults or clear a shortcut. A shortcut can be left empty to disable it. Changes are saved and applied immediately.
 
 ## Usage
 

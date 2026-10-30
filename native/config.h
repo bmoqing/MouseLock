@@ -28,6 +28,7 @@ inline bool IsSet(const Hotkey& hk) { return hk.key != -1; }
 struct AppConfig
 {
     Hotkey unlock;    // 长按临时解锁
+    Hotkey toggleLock; // 切换锁定状态
     Hotkey jumpLeft;  // 跳转上一屏幕
     Hotkey jumpRight; // 跳转下一屏幕
     bool startSilent = false;

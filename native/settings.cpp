@@ -53,6 +53,7 @@ namespace
         AppConfig cfg;
         HWND hwnd = nullptr;
         HWND unlockEdit = nullptr;
+        HWND toggleLockEdit = nullptr;
         HWND jumpLeftEdit = nullptr;
         HWND jumpRightEdit = nullptr;
         HWND chkSilent = nullptr;
@@ -567,6 +568,7 @@ namespace
         if (!g_ctx)
             return;
         UpdateEditText(g_ctx->unlockEdit, g_ctx->cfg.unlock);
+        UpdateEditText(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock);
         UpdateEditText(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft);
         UpdateEditText(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight);
         SendMessageW(g_ctx->chkSilent, BM_SETCHECK,
@@ -722,7 +724,7 @@ namespace
         int rightWidth = width - leftWidth - 16;
 
         // Keep the hidden-entry checkbox and action buttons outside both lists.
-        const int listTop = 333;
+        const int listTop = 369;
         const int labelHeight = 16;
         const int labelSearchGap = 4;
         const int searchHeight = 23;
@@ -735,12 +737,12 @@ namespace
         int buttonTop = client.bottom - bottomMargin - buttonHeight;
         int hiddenTop = buttonTop - buttonGap - hiddenHeight;
         int listBottom = hiddenTop - hiddenGap;
-        MoveWindow(g_ctx->applicationLabel, 16, 286, leftWidth, labelHeight, TRUE);
-        MoveWindow(g_ctx->applicationSearch, 16, 306, leftWidth, searchHeight, TRUE);
+        MoveWindow(g_ctx->applicationLabel, 16, 322, leftWidth, labelHeight, TRUE);
+        MoveWindow(g_ctx->applicationSearch, 16, 342, leftWidth, searchHeight, TRUE);
         MoveWindow(g_ctx->applicationList, 16, listTop, leftWidth, listBottom - listTop, TRUE);
         ListView_SetColumnWidth(g_ctx->applicationList, 0, (std::max)(0, leftWidth - 4));
-        MoveWindow(g_ctx->bindingLabel, rightX, 286, rightWidth, labelHeight, TRUE);
-        MoveWindow(g_ctx->bindingList, rightX, 306, rightWidth, listBottom - 306, TRUE);
+        MoveWindow(g_ctx->bindingLabel, rightX, 322, rightWidth, labelHeight, TRUE);
+        MoveWindow(g_ctx->bindingList, rightX, 342, rightWidth, listBottom - 342, TRUE);
         ListView_SetColumnWidth(g_ctx->bindingList, 0, (std::max)(0, rightWidth - 4));
         MoveWindow(g_ctx->showHidden, 16, hiddenTop, width, hiddenHeight, TRUE);
         MoveWindow(g_ctx->refreshBindings, 16, buttonTop, 100, buttonHeight, TRUE);
@@ -776,38 +778,42 @@ namespace
             CreateLabel(hwnd, L"临时解锁键（长按）：", 16, 22, false);
             CreateLabel(hwnd, L"跳转到上一屏幕：", 16, 58, false);
             CreateLabel(hwnd, L"跳转到下一屏幕：", 16, 94, false);
-            CreateLabel(hwnd, L"锁定模式", 16, 122, true);
+            CreateLabel(hwnd, L"启用/停用锁定：", 16, 130, false);
+            CreateLabel(hwnd, L"锁定模式", 16, 158, true);
 
             g_ctx->unlockEdit = CreateEdit(hwnd, 150, 18, 196, 23, &g_ctx->cfg.unlock);
+            g_ctx->toggleLockEdit = CreateEdit(hwnd, 150, 126, 196, 23, &g_ctx->cfg.toggleLock);
             g_ctx->jumpLeftEdit = CreateEdit(hwnd, 150, 54, 196, 23, &g_ctx->cfg.jumpLeft);
             g_ctx->jumpRightEdit = CreateEdit(hwnd, 150, 90, 196, 23, &g_ctx->cfg.jumpRight);
 
             CreateButton(hwnd, L"↻", 352, 18, 26, 23, IDC_UNLOCK_RESTORE);
             CreateButton(hwnd, L"✕", 382, 18, 26, 23, IDC_UNLOCK_CLEAR);
+            CreateButton(hwnd, L"↻", 352, 126, 26, 23, IDC_TOGGLELOCK_RESTORE);
+            CreateButton(hwnd, L"✕", 382, 126, 26, 23, IDC_TOGGLELOCK_CLEAR);
             CreateButton(hwnd, L"↻", 352, 54, 26, 23, IDC_JUMPLEFT_RESTORE);
             CreateButton(hwnd, L"✕", 382, 54, 26, 23, IDC_JUMPLEFT_CLEAR);
             CreateButton(hwnd, L"↻", 352, 90, 26, 23, IDC_JUMPRIGHT_RESTORE);
             CreateButton(hwnd, L"✕", 382, 90, 26, 23, IDC_JUMPRIGHT_CLEAR);
 
-            g_ctx->chkCenter = CreateCheck(hwnd, L"将鼠标锁定到当前屏幕正中间", 16, 146, IDC_CHK_CENTER);
-            g_ctx->chkBinding = CreateCheck(hwnd, L"仅当前绑定窗口或进程在前台时锁定", 16, 174, IDC_CHK_BINDING);
-            CreateLabel(hwnd, L"启动选项", 16, 202, true);
-            g_ctx->chkSilent = CreateCheck(hwnd, L"启动时静默启动到托盘（不显示主窗口）", 16, 226, IDC_CHK_SILENT);
-            g_ctx->chkAutoStart = CreateCheck(hwnd, L"开机自动启动", 16, 254, IDC_CHK_AUTOSTART);
+            g_ctx->chkCenter = CreateCheck(hwnd, L"将鼠标锁定到当前屏幕正中间", 16, 182, IDC_CHK_CENTER);
+            g_ctx->chkBinding = CreateCheck(hwnd, L"仅当前绑定窗口或进程在前台时锁定", 16, 210, IDC_CHK_BINDING);
+            CreateLabel(hwnd, L"启动选项", 16, 238, true);
+            g_ctx->chkSilent = CreateCheck(hwnd, L"启动时静默启动到托盘（不显示主窗口）", 16, 262, IDC_CHK_SILENT);
+            g_ctx->chkAutoStart = CreateCheck(hwnd, L"开机自动启动", 16, 290, IDC_CHK_AUTOSTART);
 
-            g_ctx->applicationLabel = CreateLabel(hwnd, L"绑定应用（窗口和进程统一）", 16, 286, true);
+            g_ctx->applicationLabel = CreateLabel(hwnd, L"绑定应用（窗口和进程统一）", 16, 322, true);
             g_ctx->applicationSearch = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 306, 360, 23, hwnd,
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 342, 360, 23, hwnd,
                 (HMENU)(INT_PTR)IDC_EDIT_WINDOW_SEARCH, nullptr, nullptr);
             g_ctx->applicationList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
                     LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-                16, 333, 360, 120, hwnd, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
-            g_ctx->bindingLabel = CreateLabel(hwnd, L"当前已绑定", 392, 286, true);
+                16, 369, 360, 120, hwnd, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
+            g_ctx->bindingLabel = CreateLabel(hwnd, L"当前已绑定", 392, 322, true);
             g_ctx->bindingList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
                     LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-                392, 306, 360, 322, hwnd, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
+                392, 342, 360, 322, hwnd, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
             ConfigureVirtualList(g_ctx->applicationList);
             ConfigureVirtualList(g_ctx->bindingList);
             g_ctx->showHidden = CreateCheck(hwnd, L"显示无可见窗口的后台应用", 16, 654, IDC_CHK_SHOW_HIDDEN);
@@ -817,6 +823,7 @@ namespace
             g_ctx->clearBindings = CreateButton(hwnd, L"清空全部绑定", 392, 680, 120, 28, IDC_BTN_CLEAR_BINDINGS);
 
             UpdateEditText(g_ctx->unlockEdit, g_ctx->cfg.unlock);
+            UpdateEditText(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock);
             UpdateEditText(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft);
             UpdateEditText(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight);
             SendMessageW(g_ctx->chkSilent, BM_SETCHECK, g_ctx->cfg.startSilent ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -880,6 +887,15 @@ namespace
             }
             case IDC_UNLOCK_CLEAR:
                 ClearGood(g_ctx->unlockEdit, g_ctx->cfg.unlock);
+                break;
+            case IDC_TOGGLELOCK_RESTORE:
+            {
+                Hotkey def{ { Modifier::Control, Modifier::Alt }, 'L' };
+                ApplyDefaultGood(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock, def);
+                break;
+            }
+            case IDC_TOGGLELOCK_CLEAR:
+                ClearGood(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock);
                 break;
             case IDC_JUMPLEFT_RESTORE:
             {

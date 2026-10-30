@@ -29,7 +29,7 @@ namespace
     std::wstring g_cfgPath;             // 配置文件完整路径
 
     // ========== 锁定状态 ==========
-    bool g_enabled = true;              // 主开关：是否启用鼠标锁定
+    bool g_enabled = false;             // 启动时保持未锁定，避免首次配置前鼠标被困在其他屏幕
     bool g_unlockedByHold = false;      // 是否因长按解锁键而临时解锁
     bool g_bindingMatched = false;      // 前台窗口是否匹配用户绑定
 
@@ -84,6 +84,7 @@ namespace
     constexpr UINT kMsgJump = WM_APP + 2;
     constexpr UINT kMsgUnlockSync = WM_APP + 3;
     constexpr UINT kMsgMouseRevalidate = WM_APP + 4;
+    constexpr UINT kMsgToggleLock = WM_APP + 5;
     std::atomic_bool g_mouseRevalidatePosted{ false };
     std::atomic_long g_lastMouseX{ 0 };
     std::atomic_long g_lastMouseY{ 0 };
@@ -558,6 +559,16 @@ namespace
                 SetModifierState(k->vkCode, isDown);
 
             RequestUnlockSync();
+
+            if (isDown && firstDown && !g_settingsOpen &&
+                TryMatch(g_cfg.toggleLock, k->vkCode))
+            {
+                if (g_hwnd && PostMessageW(g_hwnd, kMsgToggleLock, 0, 0))
+                {
+                    g_swallowedKeyboardKeys.insert((int)k->vkCode);
+                    return 1;
+                }
+            }
 
             if (isDown && firstDown && g_enabled && !g_settingsOpen)
             {
@@ -1468,6 +1479,10 @@ namespace
             }
             return 0;
         }
+
+        case kMsgToggleLock:
+            SetEnabled(!g_enabled);
+            return 0;
 
         case kMsgUnlockSync:
             g_unlockSyncPosted.store(false);

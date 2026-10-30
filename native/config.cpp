@@ -397,6 +397,8 @@ namespace
         AppConfig cfg;
         cfg.unlock.modifiers = { Modifier::Control };
         cfg.unlock.key = 0;
+        cfg.toggleLock.modifiers = { Modifier::Control, Modifier::Alt };
+        cfg.toggleLock.key = 'L';
         cfg.jumpLeft.modifiers = { Modifier::Control, Modifier::Alt };
         cfg.jumpLeft.key = 0x25;
         cfg.jumpRight.modifiers = { Modifier::Control, Modifier::Alt };
@@ -503,6 +505,12 @@ AppConfig LoadConfig(const std::wstring& path)
         else
             parseHotkey(v, cfg.unlock);
 
+    if (const JsonValue* v = find(root.obj, "ToggleLockHotkey"))
+        if (v->type == JsonValue::Type::Null)
+            cfg.toggleLock.key = -1;
+        else
+            parseHotkey(v, cfg.toggleLock);
+
     if (const JsonValue* v = find(root.obj, "JumpLeft"))
         if (v->type == JsonValue::Type::Null)
             cfg.jumpLeft.key = -1;
@@ -579,6 +587,7 @@ bool SaveConfig(const std::wstring& path, const AppConfig& cfg)
     };
 
     root.obj["UnlockHotkey"] = cfg.unlock.key == -1 ? makeHotkey(nullptr) : hotkeyToJson(cfg.unlock);
+    root.obj["ToggleLockHotkey"] = cfg.toggleLock.key == -1 ? makeHotkey(nullptr) : hotkeyToJson(cfg.toggleLock);
     root.obj["JumpLeft"] = cfg.jumpLeft.key == -1 ? makeHotkey(nullptr) : hotkeyToJson(cfg.jumpLeft);
     root.obj["JumpRight"] = cfg.jumpRight.key == -1 ? makeHotkey(nullptr) : hotkeyToJson(cfg.jumpRight);
     root.obj["StartSilent"].type = JsonValue::Type::Bool;
