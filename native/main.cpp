@@ -54,11 +54,10 @@ namespace
     // ========== UI 资源 ==========
     HWND g_hwnd = nullptr;              // 主窗口句柄
     HICON g_icon = nullptr;             // 应用图标
-    HFONT g_mainFont = nullptr;         // 主窗口大标题字体
     HINSTANCE g_inst = nullptr;         // 应用实例句柄
+    SettingsCallbacks g_settingsCallbacks;
     bool g_allowClose = false;          // 是否允许关闭主窗口（防止误关）
     bool g_quitting = false;            // 是否正在退出程序
-    bool g_settingsOpen = false;        // 设置窗口打开期间暂停备用校验
 
     // ========== 窗口/进程绑定 ==========
     std::unordered_set<HWND> g_boundWindows;    // 临时绑定的窗口（当前会话）
@@ -501,17 +500,7 @@ namespace
             Shell_NotifyIconW(NIM_MODIFY, &g_nid);
         }
 
-        // 主窗口复选框
-        if (g_hwnd)
-        {
-            HWND chk = GetDlgItem(g_hwnd, IDC_CHK_ENABLED);
-            if (chk)
-                SendMessageW(chk, BM_SETCHECK, g_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
-
-            HWND hideButton = GetDlgItem(g_hwnd, IDC_BTN_HIDE);
-            if (hideButton)
-                SetWindowTextW(hideButton, g_cfg.hideTrayIcon ? L"退出程序" : L"隐藏到托盘");
-        }
+        SyncSettingsControls(g_cfg, g_enabled);
 
         if (g_trayMenu)
         {
@@ -605,7 +594,7 @@ namespace
             if (mouse_lock::ShouldHandleGlobalHotkeys(
                     g_hotkeyCaptureActive.load(std::memory_order_acquire)))
             {
-                if (isDown && firstDown && !g_settingsOpen &&
+                if (isDown && firstDown &&
                     TryMatch(g_cfg.toggleLock, k->vkCode))
                 {
                     if (g_hwnd && PostMessageW(g_hwnd, kMsgToggleLock, 0, 0))
@@ -615,7 +604,7 @@ namespace
                     }
                 }
 
-                if (isDown && firstDown && g_enabled && !g_settingsOpen)
+                if (isDown && firstDown && g_enabled)
                 {
                     if (TryMatch(g_cfg.jumpLeft, k->vkCode))
                     {
@@ -641,8 +630,7 @@ namespace
 
             bool wasSwallowed = isUp &&
                 g_swallowedKeyboardKeys.erase((int)k->vkCode) != 0;
-            if (wasSwallowed && mouse_lock::ShouldHandleGlobalHotkeys(
-                    g_hotkeyCaptureActive.load(std::memory_order_acquire)))
+            if (wasSwallowed)
                 return 1;
         }
         return CallNextHookEx(nullptr, nCode, wp, lp);
@@ -685,7 +673,7 @@ namespace
                     bool firstDown = g_heldMouseButtons.insert(button).second;
                     RequestUnlockSync();
 
-                    if (firstDown && g_enabled && !g_settingsOpen &&
+                    if (firstDown && g_enabled &&
                         mouse_lock::ShouldHandleGlobalHotkeys(
                             g_hotkeyCaptureActive.load(std::memory_order_acquire)))
                     {
@@ -711,8 +699,7 @@ namespace
                     g_heldMouseButtons.erase(button);
                     RequestUnlockSync();
                     bool wasSwallowed = g_swallowedMouseButtons.erase(button) != 0;
-                    if (wasSwallowed && mouse_lock::ShouldHandleGlobalHotkeys(
-                            g_hotkeyCaptureActive.load(std::memory_order_acquire)))
+                    if (wasSwallowed)
                         return 1;
                 }
             }
@@ -1303,123 +1290,7 @@ namespace
         return success;
     }
 
-    void OpenSettings()
-    {
-        bool prevAutoStart = g_cfg.autoStart;
-        bool prevCenterLock = g_cfg.centerLock;
-        bool prevForegroundBinding = g_cfg.foregroundBinding;
-        bool prevHideTrayIcon = g_cfg.hideTrayIcon;
-        std::vector<HWND> boundWindows(g_boundWindows.begin(), g_boundWindows.end());
-        std::vector<DWORD> boundProcesses(g_boundProcesses.begin(), g_boundProcesses.end());
-        g_settingsOpen = true;
-        bool backupTimerPaused = g_hwnd && KillTimer(g_hwnd, kTimerBackup) != FALSE;
-        ShowSettingsDialog(g_hwnd, g_cfg, boundWindows, boundProcesses, [&](AppConfig& cfg) {
-            AppConfig oldCfg = g_cfg;
-            if (g_enabled && !mouse_lock::CanEnableLock(cfg))
-            {
-                MessageBoxW(g_hwnd,
-                    L"中心锁定状态下至少需要保留“临时解锁键”或“启用/停用锁定”快捷键，否则无法退出锁定。",
-                    L"MouseLock - 安全提示", MB_OK | MB_ICONWARNING);
-                cfg = oldCfg;
-                return;
-            }
-            bool centerLockChanged = cfg.centerLock != prevCenterLock;
-            bool foregroundBindingChanged = cfg.foregroundBinding != prevForegroundBinding;
-            bool hideTrayIconChanged = cfg.hideTrayIcon != prevHideTrayIcon;
-            if (cfg.autoStart != prevAutoStart)
-            {
-                bool requestedAutoStart = cfg.autoStart;
-                if (!AutoStart_SetEnabled(requestedAutoStart))
-                {
-                    MessageBoxW(g_hwnd,
-                        requestedAutoStart
-                            ? L"开机自启动设置失败。程序已记录详细原因，请检查计划任务服务和系统权限。"
-                            : L"关闭开机自启动失败。程序已记录详细原因，请稍后重试。",
-                        L"MouseLock - 开机自启", MB_OK | MB_ICONWARNING);
-                    cfg.autoStart = prevAutoStart;
-                }
-                else
-                {
-                    prevAutoStart = cfg.autoStart;
-                }
-            }
-
-            g_cfg = cfg;
-            if (!SaveConfig(g_cfgPath, g_cfg))
-            {
-                MessageBoxW(g_hwnd, L"配置保存失败，请检查文件权限或磁盘空间。",
-                    L"错误", MB_OK | MB_ICONERROR);
-                if (cfg.autoStart != oldCfg.autoStart)
-                    AutoStart_SetEnabled(oldCfg.autoStart);
-                cfg = oldCfg;
-                g_cfg = oldCfg;
-                return;
-            }
-            if (hideTrayIconChanged)
-            {
-                prevHideTrayIcon = cfg.hideTrayIcon;
-                ApplyTrayIconPreference(true);
-                SyncUi();
-            }
-            if ((centerLockChanged || foregroundBindingChanged) &&
-                g_enabled && !g_unlockedByHold)
-            {
-                if (g_cfg.foregroundBinding)
-                    RequestForegroundRefresh();
-                else
-                    g_locker.LockToCurrentScreen(g_cfg.centerLock);
-            }
-            prevCenterLock = cfg.centerLock;
-            prevForegroundBinding = cfg.foregroundBinding;
-        }, [&](const std::vector<HWND>& windows, const std::vector<DWORD>& processes,
-               const std::vector<std::wstring>& windowPaths,
-               const std::vector<std::wstring>& processPaths) {
-            g_boundWindows = std::unordered_set<HWND>(windows.begin(), windows.end());
-            g_boundProcesses = std::unordered_set<DWORD>(processes.begin(), processes.end());
-            g_cfg.boundWindowPaths = windowPaths;
-            g_cfg.boundProcessPaths = processPaths;
-            if (!SaveConfig(g_cfgPath, g_cfg))
-            {
-                MessageBoxW(g_hwnd, L"配置保存失败，请检查文件权限或磁盘空间。",
-                    L"错误", MB_OK | MB_ICONERROR);
-            }
-            if (g_enabled && !g_unlockedByHold)
-                RequestForegroundRefresh();
-        });
-
-        g_settingsOpen = false;
-        if (backupTimerPaused && g_hwnd && !SetTimer(g_hwnd, kTimerBackup, kBackupIntervalMs, nullptr))
-            LOG_ERROR(L"设置窗口关闭后恢复备用校验定时器失败 (错误码 %d)", GetLastError());
-    }
-
     // ---------------- 主窗口 ----------------
-
-    void CreateMainControls(HWND hwnd)
-    {
-        g_mainFont = CreateFontW(-16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
-
-        HWND lbl = CreateWindowExW(0, L"STATIC", L"鼠标锁定工具",
-            WS_CHILD | WS_VISIBLE | SS_LEFT, 20, 16, 300, 24, hwnd, nullptr, nullptr, nullptr);
-        SendMessageW(lbl, WM_SETFONT, (WPARAM)g_mainFont, TRUE);
-
-        HWND chk = CreateWindowExW(0, L"BUTTON", L"启用鼠标锁定",
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-            20, 52, 300, 20, hwnd, (HMENU)(INT_PTR)IDC_CHK_ENABLED, g_inst, nullptr);
-        SendMessageW(chk, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-        SendMessageW(chk, BM_SETCHECK, g_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
-
-        HWND btnSettings = CreateWindowExW(0, L"BUTTON", L"设置...",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-            20, 96, kButtonWidth + 50, 32, hwnd, (HMENU)(INT_PTR)IDC_BTN_SETTINGS, g_inst, nullptr);
-        SendMessageW(btnSettings, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-
-        HWND btnHide = CreateWindowExW(0, L"BUTTON", L"隐藏到托盘",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-            188, 96, kButtonWidth + 50, 32, hwnd, (HMENU)(INT_PTR)IDC_BTN_HIDE, g_inst, nullptr);
-        SendMessageW(btnHide, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-    }
 
     HMENU BuildTrayMenu();
 
@@ -1473,8 +1344,10 @@ namespace
             else
                 g_locker.LockToCurrentScreen(g_cfg.centerLock);
             break;
-        case ID_TRAY_BIND_SETTINGS: OpenSettings(); break;
-        case ID_TRAY_SETTINGS: OpenSettings(); break;
+        case ID_TRAY_BIND_SETTINGS:
+        case ID_TRAY_SETTINGS:
+            ShowMain();
+            break;
         case ID_TRAY_EXIT:
             g_allowClose = true;
             DestroyWindow(g_hwnd);
@@ -1489,7 +1362,7 @@ namespace
         g_locker.Unlock();
         Shell_NotifyIconW(NIM_DELETE, &g_nid);
         if (g_icon) { DestroyIcon(g_icon); g_icon = nullptr; }
-        if (g_mainFont) { DeleteObject(g_mainFont); g_mainFont = nullptr; }
+        DestroySettingsControls();
         if (g_trayMenu) { DestroyMenu(g_trayMenu); g_trayMenu = nullptr; }
         ShutdownLogger();
         PostQuitMessage(0);
@@ -1505,31 +1378,30 @@ namespace
             return 0;
         }
 
+        if (msg == WM_COMMAND || msg == WM_NOTIFY || msg == WM_SIZE ||
+            msg == WM_GETMINMAXINFO || msg == WM_CTLCOLORSTATIC)
+        {
+            LRESULT settingsResult = 0;
+            if (HandleSettingsMessage(hwnd, msg, wp, lp, settingsResult))
+                return settingsResult;
+        }
+
         switch (msg)
         {
         case WM_CREATE:
-            CreateMainControls(hwnd);
+        {
+            std::vector<HWND> boundWindows(g_boundWindows.begin(), g_boundWindows.end());
+            std::vector<DWORD> boundProcesses(g_boundProcesses.begin(), g_boundProcesses.end());
+            CreateSettingsControls(hwnd, g_cfg, g_enabled, boundWindows, boundProcesses,
+                g_settingsCallbacks);
             return 0;
+        }
 
         case WM_COMMAND:
         {
             int id = LOWORD(wp);
             switch (id)
             {
-            case IDC_CHK_ENABLED:
-            {
-                HWND chk = (HWND)lp;
-                bool on = SendMessageW(chk, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                SetEnabled(on);
-                break;
-            }
-            case IDC_BTN_SETTINGS: OpenSettings(); break;
-            case IDC_BTN_HIDE:
-                if (g_cfg.hideTrayIcon)
-                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
-                else
-                    HideMain();
-                break;
             case ID_TRAY_TOGGLE:
             case ID_TRAY_JUMPPREV:
             case ID_TRAY_JUMPNEXT:
@@ -1538,9 +1410,11 @@ namespace
             case ID_TRAY_SETTINGS:
             case ID_TRAY_EXIT:
                 HandleTrayCommand(id);
+                return 0;
+            default:
                 break;
             }
-            return 0;
+            break;
         }
 
         case kMsgJump:
@@ -1571,7 +1445,7 @@ namespace
         {
             const unsigned int sequenceAtStart =
                 g_mousePositionSequence.load(std::memory_order_acquire);
-            if (g_enabled && !g_unlockedByHold && !g_settingsOpen)
+            if (g_enabled && !g_unlockedByHold)
             {
                 POINT observed{};
                 const POINT* observedPtr = nullptr;
@@ -1603,7 +1477,7 @@ namespace
 
         case WM_TIMER:
         {
-            if (wp == kTimerBackup && !g_settingsOpen)
+            if (wp == kTimerBackup)
             {
                 ReconcileForegroundWindow();
                 g_locker.Revalidate(false);
@@ -1624,14 +1498,6 @@ namespace
             }
             DestroyWindow(hwnd);
             return 0;
-
-        case WM_CTLCOLORSTATIC:
-        {
-            HDC hdc = (HDC)wp;
-            SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
-            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
-        }
 
         case WM_DESTROY:
             ExitApplication();
@@ -1794,6 +1660,79 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         }
     }
 
+    g_settingsCallbacks.onChanged = [](AppConfig& cfg) {
+        const AppConfig oldCfg = g_cfg;
+        if (g_enabled && !mouse_lock::CanEnableLock(cfg))
+        {
+            MessageBoxW(g_hwnd,
+                L"中心锁定状态下至少需要保留“临时解锁键”或“启用/停用锁定”快捷键，否则无法退出锁定。",
+                L"MouseLock - 安全提示", MB_OK | MB_ICONWARNING);
+            cfg = oldCfg;
+            return;
+        }
+
+        const bool centerLockChanged = cfg.centerLock != oldCfg.centerLock;
+        const bool foregroundBindingChanged =
+            cfg.foregroundBinding != oldCfg.foregroundBinding;
+        const bool hideTrayIconChanged = cfg.hideTrayIcon != oldCfg.hideTrayIcon;
+        if (cfg.autoStart != oldCfg.autoStart &&
+            !AutoStart_SetEnabled(cfg.autoStart))
+        {
+            MessageBoxW(g_hwnd,
+                cfg.autoStart
+                    ? L"开机自启动设置失败。程序已记录详细原因，请检查计划任务服务和系统权限。"
+                    : L"关闭开机自启动失败。程序已记录详细原因，请稍后重试。",
+                L"MouseLock - 开机自启", MB_OK | MB_ICONWARNING);
+            cfg.autoStart = oldCfg.autoStart;
+        }
+
+        g_cfg = cfg;
+        if (!SaveConfig(g_cfgPath, g_cfg))
+        {
+            MessageBoxW(g_hwnd, L"配置保存失败，请检查文件权限或磁盘空间。",
+                L"错误", MB_OK | MB_ICONERROR);
+            if (cfg.autoStart != oldCfg.autoStart)
+                AutoStart_SetEnabled(oldCfg.autoStart);
+            cfg = oldCfg;
+            g_cfg = oldCfg;
+            return;
+        }
+
+        if (hideTrayIconChanged)
+            ApplyTrayIconPreference(true);
+        if ((centerLockChanged || foregroundBindingChanged) &&
+            g_enabled && !g_unlockedByHold)
+        {
+            if (g_cfg.foregroundBinding)
+                RequestForegroundRefresh();
+            else
+                g_locker.LockToCurrentScreen(g_cfg.centerLock);
+        }
+        SyncUi();
+    };
+    g_settingsCallbacks.onBindingsChanged =
+        [](const std::vector<HWND>& windows, const std::vector<DWORD>& processes,
+           const std::vector<std::wstring>& windowPaths,
+           const std::vector<std::wstring>& processPaths) {
+            g_boundWindows = std::unordered_set<HWND>(windows.begin(), windows.end());
+            g_boundProcesses = std::unordered_set<DWORD>(processes.begin(), processes.end());
+            g_cfg.boundWindowPaths = windowPaths;
+            g_cfg.boundProcessPaths = processPaths;
+            if (!SaveConfig(g_cfgPath, g_cfg))
+            {
+                MessageBoxW(g_hwnd, L"配置保存失败，请检查文件权限或磁盘空间。",
+                    L"错误", MB_OK | MB_ICONERROR);
+            }
+            if (g_enabled && !g_unlockedByHold)
+                RequestForegroundRefresh();
+        };
+    g_settingsCallbacks.onEnabledChanged = [](bool enabled) {
+        SetEnabled(enabled);
+    };
+    g_settingsCallbacks.onHotkeyCaptureChanged = [](bool active) {
+        g_hotkeyCaptureActive.store(active, std::memory_order_release);
+    };
+
     g_icon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_MOUSELOCK),
         IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
     if (!g_icon)
@@ -1824,7 +1763,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         return 1;
     }
 
-    RECT rc{ 0, 0, kMainWindowWidth, kMainWindowHeight };
+    RECT rc{ 0, 0, kSettingsWindowWidth, kSettingsWindowHeight };
     DWORD style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     if (!AdjustWindowRectEx(&rc, style, FALSE, 0))
     {
@@ -1836,7 +1775,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         return 1;
     }
 
-    g_hwnd = CreateWindowExW(0, kMainClass, L"鼠标锁定 (MouseLock)", style,
+    g_hwnd = CreateWindowExW(0, kMainClass, L"鼠标锁定 - 设置", style,
         CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
         nullptr, nullptr, hInstance, nullptr);
     if (!g_hwnd)
