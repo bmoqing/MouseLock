@@ -19,7 +19,7 @@
 #define IDC_BTN_OK          1012
 #define IDC_BTN_CANCEL      1013
 
-// Main window controls
+// Settings controls hosted by the main window
 #define IDC_CHK_ENABLED     1020
 #define IDC_BTN_SETTINGS    1021
 #define IDC_BTN_HIDE        1022

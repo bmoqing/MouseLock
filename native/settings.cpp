@@ -56,6 +56,7 @@ namespace
         HWND toggleLockEdit = nullptr;
         HWND jumpLeftEdit = nullptr;
         HWND jumpRightEdit = nullptr;
+        HWND chkEnabled = nullptr;
         HWND chkSilent = nullptr;
         HWND chkAutoStart = nullptr;
         HWND chkCenter = nullptr;
@@ -86,6 +87,8 @@ namespace
         std::vector<std::wstring> boundProcessPaths;
         BindingChangedCallback onBindingsChanged;
         std::function<void(AppConfig&)> onChanged;
+        std::function<void(bool)> onEnabledChanged;
+        std::function<void(bool)> onHotkeyCaptureChanged;
     };
 
     SettingsCtx* g_ctx = nullptr;
@@ -527,8 +530,6 @@ namespace
     WNDPROC g_origHotkeyEditProc = nullptr;
     HFONT g_boldFont = nullptr;
 
-    const wchar_t* kSettingsClass = L"MouseLockSettings";
-
     bool IsModifierVk(int vk)
     {
         return vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL ||
@@ -597,6 +598,12 @@ namespace
     // 快捷键录入框子类过程
     LRESULT CALLBACK HotkeyEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     {
+        if (msg == WM_SETFOCUS || msg == WM_KILLFOCUS)
+        {
+            if (g_ctx && g_ctx->onHotkeyCaptureChanged)
+                g_ctx->onHotkeyCaptureChanged(msg == WM_SETFOCUS);
+        }
+
         if (msg == WM_GETDLGCODE)
             return DLGC_WANTALLKEYS;
 
@@ -769,370 +776,218 @@ namespace
         Commit();
     }
 
-    LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
-    {
-        switch (msg)
-        {
-        case WM_CREATE:
-        {
-            if (!g_ctx)
-                return -1; // 创建失败
-
-            CreateLabel(hwnd, L"临时解锁键（长按）：", 16, 22, false);
-            CreateLabel(hwnd, L"跳转到上一屏幕：", 16, 58, false);
-            CreateLabel(hwnd, L"跳转到下一屏幕：", 16, 94, false);
-            CreateLabel(hwnd, L"启用/停用锁定：", 16, 130, false);
-            CreateLabel(hwnd, L"锁定模式", 16, 158, true);
-
-            g_ctx->unlockEdit = CreateEdit(hwnd, 150, 18, 196, 23, &g_ctx->cfg.unlock);
-            g_ctx->toggleLockEdit = CreateEdit(hwnd, 150, 126, 196, 23, &g_ctx->cfg.toggleLock);
-            g_ctx->jumpLeftEdit = CreateEdit(hwnd, 150, 54, 196, 23, &g_ctx->cfg.jumpLeft);
-            g_ctx->jumpRightEdit = CreateEdit(hwnd, 150, 90, 196, 23, &g_ctx->cfg.jumpRight);
-
-            CreateButton(hwnd, L"↻", 352, 18, 26, 23, IDC_UNLOCK_RESTORE);
-            CreateButton(hwnd, L"✕", 382, 18, 26, 23, IDC_UNLOCK_CLEAR);
-            CreateButton(hwnd, L"↻", 352, 126, 26, 23, IDC_TOGGLELOCK_RESTORE);
-            CreateButton(hwnd, L"✕", 382, 126, 26, 23, IDC_TOGGLELOCK_CLEAR);
-            CreateButton(hwnd, L"↻", 352, 54, 26, 23, IDC_JUMPLEFT_RESTORE);
-            CreateButton(hwnd, L"✕", 382, 54, 26, 23, IDC_JUMPLEFT_CLEAR);
-            CreateButton(hwnd, L"↻", 352, 90, 26, 23, IDC_JUMPRIGHT_RESTORE);
-            CreateButton(hwnd, L"✕", 382, 90, 26, 23, IDC_JUMPRIGHT_CLEAR);
-
-            g_ctx->chkCenter = CreateCheck(hwnd, L"将鼠标锁定到当前屏幕正中间", 16, 182, IDC_CHK_CENTER);
-            g_ctx->chkBinding = CreateCheck(hwnd, L"仅当前绑定窗口或进程在前台时锁定", 16, 210, IDC_CHK_BINDING);
-            CreateLabel(hwnd, L"启动选项", 16, 238, true);
-            g_ctx->chkSilent = CreateCheck(hwnd, L"启动时静默启动到托盘（不显示主窗口）", 16, 262, IDC_CHK_SILENT);
-            g_ctx->chkAutoStart = CreateCheck(hwnd, L"开机自动启动", 16, 290, IDC_CHK_AUTOSTART);
-            g_ctx->chkHideTrayIcon = CreateCheck(hwnd,
-                L"隐藏系统托盘图标（再次运行程序可打开设置）", 16, 318, IDC_CHK_HIDE_TRAY_ICON);
-
-            g_ctx->applicationLabel = CreateLabel(hwnd, L"绑定应用（窗口和进程统一）", 16, 350, true);
-            g_ctx->applicationSearch = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 370, 360, 23, hwnd,
-                (HMENU)(INT_PTR)IDC_EDIT_WINDOW_SEARCH, nullptr, nullptr);
-            g_ctx->applicationList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
-                    LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-                16, 397, 360, 120, hwnd, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
-            g_ctx->bindingLabel = CreateLabel(hwnd, L"当前已绑定", 392, 350, true);
-            g_ctx->bindingList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
-                    LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-                392, 370, 360, 322, hwnd, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
-            ConfigureVirtualList(g_ctx->applicationList);
-            ConfigureVirtualList(g_ctx->bindingList);
-            g_ctx->showHidden = CreateCheck(hwnd, L"显示无可见窗口的后台应用", 16, 654, IDC_CHK_SHOW_HIDDEN);
-            g_ctx->refreshBindings = CreateButton(hwnd, L"刷新列表", 16, 680, 100, 28, IDC_BTN_REFRESH_BINDINGS);
-            g_ctx->bindSelected = CreateButton(hwnd, L"绑定选中项", 128, 680, 120, 28, IDC_BTN_BIND_SELECTED);
-            g_ctx->removeBindings = CreateButton(hwnd, L"移除选中绑定", 260, 680, 120, 28, IDC_BTN_REMOVE_BINDINGS);
-            g_ctx->clearBindings = CreateButton(hwnd, L"清空全部绑定", 392, 680, 120, 28, IDC_BTN_CLEAR_BINDINGS);
-
-            UpdateEditText(g_ctx->unlockEdit, g_ctx->cfg.unlock);
-            UpdateEditText(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock);
-            UpdateEditText(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft);
-            UpdateEditText(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight);
-            SendMessageW(g_ctx->chkSilent, BM_SETCHECK, g_ctx->cfg.startSilent ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(g_ctx->chkAutoStart, BM_SETCHECK, g_ctx->cfg.autoStart ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(g_ctx->chkCenter, BM_SETCHECK, g_ctx->cfg.centerLock ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(g_ctx->chkBinding, BM_SETCHECK, g_ctx->cfg.foregroundBinding ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(g_ctx->chkHideTrayIcon, BM_SETCHECK,
-                g_ctx->cfg.hideTrayIcon ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(g_ctx->showHidden, BM_SETCHECK, BST_UNCHECKED, 0);
-            RefreshBindingLists();
-            LayoutBindingControls(hwnd);
-            return 0;
-        }
-
-        case WM_NOTIFY:
-        {
-            if (!g_ctx)
-                return 0;
-
-            auto* header = reinterpret_cast<NMHDR*>(lp);
-            if (header && header->code == LVN_GETDISPINFO)
-            {
-                auto* info = reinterpret_cast<NMLVDISPINFOW*>(lp);
-                if ((info->item.mask & LVIF_TEXT) != 0 && info->item.iItem >= 0)
-                {
-                    const auto& items = ListItemsForList(header->hwndFrom);
-                    size_t index = static_cast<size_t>(info->item.iItem);
-                    if (index < items.size())
-                    {
-                        info->item.pszText = const_cast<LPWSTR>(items[index].label.c_str());
-                        info->item.cchTextMax = static_cast<int>(items[index].label.size() + 1);
-                    }
-                }
-                return 0;
-            }
-            break;
-        }
-
-        case WM_COMMAND:
-        {
-            if (!g_ctx)
-                return 0; // 上下文已清理，忽略消息
-
-            int id = LOWORD(wp);
-            if (id == IDC_EDIT_WINDOW_SEARCH &&
-                HIWORD(wp) == EN_CHANGE)
-            {
-                RefreshBindingDisplays();
-                return 0;
-            }
-            if (id == IDC_LIST_BIND_WINDOWS &&
-                HIWORD(wp) == LBN_SELCHANGE)
-            {
-                return 0;
-            }
-            switch (id)
-            {
-            case IDC_UNLOCK_RESTORE:
-            {
-                Hotkey def{ { Modifier::Control }, 0 };
-                ApplyDefaultGood(g_ctx->unlockEdit, g_ctx->cfg.unlock, def);
-                break;
-            }
-            case IDC_UNLOCK_CLEAR:
-                ClearGood(g_ctx->unlockEdit, g_ctx->cfg.unlock);
-                break;
-            case IDC_TOGGLELOCK_RESTORE:
-            {
-                Hotkey def{ { Modifier::Control, Modifier::Alt }, 'L' };
-                ApplyDefaultGood(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock, def);
-                break;
-            }
-            case IDC_TOGGLELOCK_CLEAR:
-                ClearGood(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock);
-                break;
-            case IDC_JUMPLEFT_RESTORE:
-            {
-                Hotkey def{ { Modifier::Control, Modifier::Alt }, 0x25 };
-                ApplyDefaultGood(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft, def);
-                break;
-            }
-            case IDC_JUMPLEFT_CLEAR:
-                ClearGood(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft);
-                break;
-            case IDC_JUMPRIGHT_RESTORE:
-            {
-                Hotkey def{ { Modifier::Control, Modifier::Alt }, 0x27 };
-                ApplyDefaultGood(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight, def);
-                break;
-            }
-            case IDC_JUMPRIGHT_CLEAR:
-                ClearGood(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight);
-                break;
-            case IDC_CHK_SILENT:
-                g_ctx->cfg.startSilent = SendMessageW(g_ctx->chkSilent, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                Commit();
-                break;
-            case IDC_CHK_AUTOSTART:
-                g_ctx->cfg.autoStart = SendMessageW(g_ctx->chkAutoStart, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                Commit();
-                break;
-            case IDC_CHK_CENTER:
-                g_ctx->cfg.centerLock = SendMessageW(g_ctx->chkCenter, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                Commit();
-                break;
-            case IDC_CHK_BINDING:
-                g_ctx->cfg.foregroundBinding = SendMessageW(g_ctx->chkBinding, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                Commit();
-                break;
-            case IDC_CHK_HIDE_TRAY_ICON:
-                g_ctx->cfg.hideTrayIcon =
-                    SendMessageW(g_ctx->chkHideTrayIcon, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                Commit();
-                break;
-            case IDC_BTN_REFRESH_BINDINGS:
-                RefreshBindingLists();
-                break;
-            case IDC_BTN_BIND_SELECTED:
-                ApplyBindingSelections(false);
-                break;
-            case IDC_BTN_REMOVE_BINDINGS:
-                ApplyBindingSelections(true);
-                break;
-            case IDC_BTN_CLEAR_BINDINGS:
-                g_ctx->boundWindows.clear();
-                g_ctx->boundProcesses.clear();
-                g_ctx->boundWindowPaths.clear();
-                g_ctx->boundProcessPaths.clear();
-                RefreshBindingLists();
-                CommitBindings();
-                break;
-            case IDC_CHK_SHOW_HIDDEN:
-                RefreshBindingLists();
-                break;
-            }
-            return 0;
-        }
-
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-
-        case WM_SIZE:
-            if (g_ctx)
-                LayoutBindingControls(hwnd);
-            return 0;
-
-        case WM_GETMINMAXINFO:
-        {
-            auto* info = reinterpret_cast<MINMAXINFO*>(lp);
-            info->ptMinTrackSize.x = kSettingsWindowMinWidth;
-            info->ptMinTrackSize.y = kSettingsWindowMinHeight;
-            return 0;
-        }
-
-        case WM_CTLCOLORSTATIC:
-        {
-            HDC hdc = (HDC)wp;
-            SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
-            SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
-            return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
-        }
-
-        case WM_DESTROY:
-            return 0;
-        }
-        return DefWindowProcW(hwnd, msg, wp, lp);
-    }
 }
 
-void ShowSettingsDialog(HWND parent, const AppConfig& current,
-                        const std::vector<HWND>& boundWindows,
-                        const std::vector<DWORD>& boundProcesses,
-                        const std::function<void(AppConfig&)>& onChanged,
-                        const BindingChangedCallback& onBindingsChanged)
+void CreateSettingsControls(HWND parent, const AppConfig& current, bool enabled,
+                            const std::vector<HWND>& boundWindows,
+                            const std::vector<DWORD>& boundProcesses,
+                            const SettingsCallbacks& callbacks)
 {
-    HINSTANCE inst = GetModuleHandleW(nullptr);
+    if (g_ctx)
+        DestroySettingsControls();
 
     INITCOMMONCONTROLSEX commonControls{};
     commonControls.dwSize = sizeof(commonControls);
     commonControls.dwICC = ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&commonControls);
 
-    WNDCLASSW wc{};
-    wc.lpfnWndProc = SettingsWndProc;
-    wc.hInstance = inst;
-    wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(IDI_MOUSELOCK));
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszClassName = kSettingsClass;
-    RegisterClassW(&wc);
-
     g_boldFont = CreateFontW(-11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
 
-    // 保存原始编辑控件过程（用于子类链）
     WNDCLASSEXW wce{};
     wce.cbSize = sizeof(wce);
     if (GetClassInfoExW(nullptr, L"EDIT", &wce) && wce.lpfnWndProc)
-    {
         g_origHotkeyEditProc = wce.lpfnWndProc;
-    }
     else
     {
         g_origHotkeyEditProc = nullptr;
         LOG_ERROR(L"无法获取 EDIT 控件的原始窗口过程，快捷键编辑框将使用系统默认过程");
     }
 
-    SettingsCtx ctx;
-    ctx.cfg = current;
-    ctx.boundWindows = boundWindows;
-    ctx.boundProcesses = boundProcesses;
-    ctx.boundWindowPaths = current.boundWindowPaths;
+    g_ctx = new SettingsCtx();
+    g_ctx->hwnd = parent;
+    g_ctx->cfg = current;
+    g_ctx->boundWindows = boundWindows;
+    g_ctx->boundProcesses = boundProcesses;
+    g_ctx->boundWindowPaths = current.boundWindowPaths;
     for (const auto& path : current.boundProcessPaths)
-        if (!path.empty() && !ContainsPath(ctx.boundWindowPaths, path))
-            ctx.boundWindowPaths.push_back(path);
-    ctx.boundProcessPaths.clear();
-    ctx.onChanged = onChanged;
-    ctx.onBindingsChanged = onBindingsChanged;
-    g_ctx = &ctx;
+        if (!path.empty() && !ContainsPath(g_ctx->boundWindowPaths, path))
+            g_ctx->boundWindowPaths.push_back(path);
+    g_ctx->boundProcessPaths.clear();
+    g_ctx->onChanged = callbacks.onChanged;
+    g_ctx->onBindingsChanged = callbacks.onBindingsChanged;
+    g_ctx->onEnabledChanged = callbacks.onEnabledChanged;
+    g_ctx->onHotkeyCaptureChanged = callbacks.onHotkeyCaptureChanged;
 
-    RECT rc{ 0, 0, kSettingsWindowWidth, kSettingsWindowHeight };
-    DWORD style = WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX;
-    AdjustWindowRectEx(&rc, style, FALSE, 0);
+    CreateLabel(parent, L"临时解锁键（长按）：", 16, 22, false);
+    CreateLabel(parent, L"跳转到上一屏幕：", 16, 58, false);
+    CreateLabel(parent, L"跳转到下一屏幕：", 16, 94, false);
+    CreateLabel(parent, L"启用/停用锁定：", 16, 130, false);
+    CreateLabel(parent, L"锁定模式", 16, 158, true);
 
-    // 低分辨率或任务栏占用较大时，初始窗口不能超出当前工作区。
-    RECT workArea{};
-    HMONITOR monitor = MonitorFromWindow(parent, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO monitorInfo{};
-    monitorInfo.cbSize = sizeof(monitorInfo);
-    if (monitor && GetMonitorInfoW(monitor, &monitorInfo))
-        workArea = monitorInfo.rcWork;
-    else
-    {
-        workArea.right = GetSystemMetrics(SM_CXSCREEN);
-        workArea.bottom = GetSystemMetrics(SM_CYSCREEN);
-    }
-    int outerWidth = rc.right - rc.left;
-    int outerHeight = rc.bottom - rc.top;
-    int workWidth = workArea.right - workArea.left;
-    int workHeight = workArea.bottom - workArea.top;
-    outerWidth = (std::min)(outerWidth, workWidth);
-    outerHeight = (std::min)(outerHeight, workHeight);
+    g_ctx->unlockEdit = CreateEdit(parent, 150, 18, 196, 23, &g_ctx->cfg.unlock);
+    g_ctx->toggleLockEdit = CreateEdit(parent, 150, 126, 196, 23, &g_ctx->cfg.toggleLock);
+    g_ctx->jumpLeftEdit = CreateEdit(parent, 150, 54, 196, 23, &g_ctx->cfg.jumpLeft);
+    g_ctx->jumpRightEdit = CreateEdit(parent, 150, 90, 196, 23, &g_ctx->cfg.jumpRight);
 
-    HWND hwnd = CreateWindowExW(WS_EX_CONTROLPARENT | WS_EX_APPWINDOW, kSettingsClass, L"鼠标锁定 - 设置", style,
-        CW_USEDEFAULT, CW_USEDEFAULT, outerWidth, outerHeight,
-        parent, nullptr, inst, nullptr);
-    if (!hwnd)
-    {
-        DeleteObject(g_boldFont);
-        g_boldFont = nullptr;
-        g_ctx = nullptr;
-        g_origHotkeyEditProc = nullptr;
+    CreateButton(parent, L"↻", 352, 18, 26, 23, IDC_UNLOCK_RESTORE);
+    CreateButton(parent, L"✕", 382, 18, 26, 23, IDC_UNLOCK_CLEAR);
+    CreateButton(parent, L"↻", 352, 126, 26, 23, IDC_TOGGLELOCK_RESTORE);
+    CreateButton(parent, L"✕", 382, 126, 26, 23, IDC_TOGGLELOCK_CLEAR);
+    CreateButton(parent, L"↻", 352, 54, 26, 23, IDC_JUMPLEFT_RESTORE);
+    CreateButton(parent, L"✕", 382, 54, 26, 23, IDC_JUMPLEFT_CLEAR);
+    CreateButton(parent, L"↻", 352, 90, 26, 23, IDC_JUMPRIGHT_RESTORE);
+    CreateButton(parent, L"✕", 382, 90, 26, 23, IDC_JUMPRIGHT_CLEAR);
+
+    g_ctx->chkEnabled = CreateCheck(parent, L"启用鼠标锁定", 520, 18, IDC_CHK_ENABLED);
+    SendMessageW(g_ctx->chkEnabled, BM_SETCHECK, enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    g_ctx->chkCenter = CreateCheck(parent, L"将鼠标锁定到当前屏幕正中间", 16, 182, IDC_CHK_CENTER);
+    g_ctx->chkBinding = CreateCheck(parent, L"仅当前绑定窗口或进程在前台时锁定", 16, 210, IDC_CHK_BINDING);
+    CreateLabel(parent, L"启动选项", 16, 238, true);
+    g_ctx->chkSilent = CreateCheck(parent, L"启动时静默启动到托盘（不显示主窗口）", 16, 262, IDC_CHK_SILENT);
+    g_ctx->chkAutoStart = CreateCheck(parent, L"开机自动启动", 16, 290, IDC_CHK_AUTOSTART);
+    g_ctx->chkHideTrayIcon = CreateCheck(parent,
+        L"隐藏系统托盘图标（再次运行程序可打开设置）", 16, 318, IDC_CHK_HIDE_TRAY_ICON);
+
+    g_ctx->applicationLabel = CreateLabel(parent, L"绑定应用（窗口和进程统一）", 16, 350, true);
+    g_ctx->applicationSearch = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 370, 360, 23, parent,
+        (HMENU)(INT_PTR)IDC_EDIT_WINDOW_SEARCH, nullptr, nullptr);
+    g_ctx->applicationList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
+            LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
+        16, 397, 360, 120, parent, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
+    g_ctx->bindingLabel = CreateLabel(parent, L"当前已绑定", 392, 350, true);
+    g_ctx->bindingList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
+            LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
+        392, 370, 360, 322, parent, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
+    ConfigureVirtualList(g_ctx->applicationList);
+    ConfigureVirtualList(g_ctx->bindingList);
+    g_ctx->showHidden = CreateCheck(parent, L"显示无可见窗口的后台应用", 16, 654, IDC_CHK_SHOW_HIDDEN);
+    g_ctx->refreshBindings = CreateButton(parent, L"刷新列表", 16, 680, 100, 28, IDC_BTN_REFRESH_BINDINGS);
+    g_ctx->bindSelected = CreateButton(parent, L"绑定选中项", 128, 680, 120, 28, IDC_BTN_BIND_SELECTED);
+    g_ctx->removeBindings = CreateButton(parent, L"移除选中绑定", 260, 680, 120, 28, IDC_BTN_REMOVE_BINDINGS);
+    g_ctx->clearBindings = CreateButton(parent, L"清空全部绑定", 392, 680, 120, 28, IDC_BTN_CLEAR_BINDINGS);
+
+    SyncSettingsControls(current, enabled);
+    SendMessageW(g_ctx->showHidden, BM_SETCHECK, BST_UNCHECKED, 0);
+    RefreshBindingLists();
+    LayoutBindingControls(parent);
+}
+
+void SyncSettingsControls(const AppConfig& config, bool enabled)
+{
+    if (!g_ctx)
         return;
-    }
+    g_ctx->cfg = config;
+    SyncConfigControls();
+    SendMessageW(g_ctx->chkEnabled, BM_SETCHECK, enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+}
 
-    // 窗口定位到屏幕中央
-    SetWindowPos(hwnd, nullptr,
-        workArea.left + ((workWidth - outerWidth) / 2),
-        workArea.top + ((workHeight - outerHeight) / 2),
-        0, 0, SWP_NOSIZE | SWP_NOZORDER);
+void DestroySettingsControls()
+{
+    if (!g_ctx)
+        return;
+    delete g_ctx;
+    g_ctx = nullptr;
+    DeleteObject(g_boldFont);
+    g_boldFont = nullptr;
+    g_origHotkeyEditProc = nullptr;
+}
 
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
+bool HandleSettingsMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result)
+{
+    if (!g_ctx)
+        return false;
 
-    EnableWindow(parent, FALSE);
-    SetFocus(hwnd);
-
-    // 使用 RAII 保证清理：无论如何退出，析构函数都会执行
-    struct Cleanup {
-        HWND parent;
-        ~Cleanup() {
-            EnableWindow(parent, TRUE);
-            SetActiveWindow(parent);
-            DeleteObject(g_boldFont);
-            g_boldFont = nullptr;
-            g_ctx = nullptr;
-            g_origHotkeyEditProc = nullptr;
-        }
-    } cleanup{ parent };
-
-    MSG m{};
-    while (IsWindow(hwnd))
+    switch (msg)
     {
-        int result = GetMessageW(&m, nullptr, 0, 0);
-        if (result == -1)
+    case WM_NOTIFY:
+    {
+        auto* header = reinterpret_cast<NMHDR*>(lp);
+        if (!header || header->code != LVN_GETDISPINFO)
+            return false;
+        auto* info = reinterpret_cast<NMLVDISPINFOW*>(lp);
+        if ((info->item.mask & LVIF_TEXT) != 0 && info->item.iItem >= 0)
         {
-            LOG_ERROR(L"设置窗口消息循环失败 (错误码 %d)", GetLastError());
-            break;
-        }
-        if (result == 0)
-        {
-            PostQuitMessage(static_cast<int>(m.wParam));
-            break;
-        }
-
-        if (result > 0)
-        {
-            if (!IsDialogMessageW(hwnd, &m))
+            const auto& items = ListItemsForList(header->hwndFrom);
+            size_t index = static_cast<size_t>(info->item.iItem);
+            if (index < items.size())
             {
-                TranslateMessage(&m);
-                DispatchMessageW(&m);
+                info->item.pszText = const_cast<LPWSTR>(items[index].label.c_str());
+                info->item.cchTextMax = static_cast<int>(items[index].label.size() + 1);
             }
         }
+        result = 0;
+        return true;
+    }
+    case WM_COMMAND:
+    {
+        int id = LOWORD(wp);
+        if (id == IDC_EDIT_WINDOW_SEARCH && HIWORD(wp) == EN_CHANGE)
+        {
+            RefreshBindingDisplays();
+            result = 0;
+            return true;
+        }
+        if (id == IDC_LIST_BIND_WINDOWS && HIWORD(wp) == LBN_SELCHANGE)
+        {
+            result = 0;
+            return true;
+        }
+        switch (id)
+        {
+        case IDC_CHK_ENABLED:
+            if (g_ctx->onEnabledChanged)
+                g_ctx->onEnabledChanged(SendMessageW(g_ctx->chkEnabled, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            break;
+        case IDC_UNLOCK_RESTORE: { Hotkey def{{ Modifier::Control }, 0}; ApplyDefaultGood(g_ctx->unlockEdit, g_ctx->cfg.unlock, def); break; }
+        case IDC_UNLOCK_CLEAR: ClearGood(g_ctx->unlockEdit, g_ctx->cfg.unlock); break;
+        case IDC_TOGGLELOCK_RESTORE: { Hotkey def{{ Modifier::Control, Modifier::Alt }, 'L'}; ApplyDefaultGood(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock, def); break; }
+        case IDC_TOGGLELOCK_CLEAR: ClearGood(g_ctx->toggleLockEdit, g_ctx->cfg.toggleLock); break;
+        case IDC_JUMPLEFT_RESTORE: { Hotkey def{{ Modifier::Control, Modifier::Alt }, 0x25}; ApplyDefaultGood(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft, def); break; }
+        case IDC_JUMPLEFT_CLEAR: ClearGood(g_ctx->jumpLeftEdit, g_ctx->cfg.jumpLeft); break;
+        case IDC_JUMPRIGHT_RESTORE: { Hotkey def{{ Modifier::Control, Modifier::Alt }, 0x27}; ApplyDefaultGood(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight, def); break; }
+        case IDC_JUMPRIGHT_CLEAR: ClearGood(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight); break;
+        case IDC_CHK_SILENT: g_ctx->cfg.startSilent = SendMessageW(g_ctx->chkSilent, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
+        case IDC_CHK_AUTOSTART: g_ctx->cfg.autoStart = SendMessageW(g_ctx->chkAutoStart, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
+        case IDC_CHK_CENTER: g_ctx->cfg.centerLock = SendMessageW(g_ctx->chkCenter, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
+        case IDC_CHK_BINDING: g_ctx->cfg.foregroundBinding = SendMessageW(g_ctx->chkBinding, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
+        case IDC_CHK_HIDE_TRAY_ICON: g_ctx->cfg.hideTrayIcon = SendMessageW(g_ctx->chkHideTrayIcon, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
+        case IDC_BTN_REFRESH_BINDINGS: RefreshBindingLists(); break;
+        case IDC_BTN_BIND_SELECTED: ApplyBindingSelections(false); break;
+        case IDC_BTN_REMOVE_BINDINGS: ApplyBindingSelections(true); break;
+        case IDC_BTN_CLEAR_BINDINGS:
+            g_ctx->boundWindows.clear(); g_ctx->boundProcesses.clear();
+            g_ctx->boundWindowPaths.clear(); g_ctx->boundProcessPaths.clear();
+            RefreshBindingLists(); CommitBindings(); break;
+        case IDC_CHK_SHOW_HIDDEN: RefreshBindingLists(); break;
+        default: return false;
+        }
+        result = 0;
+        return true;
+    }
+    case WM_SIZE:
+        LayoutBindingControls(hwnd); result = 0; return true;
+    case WM_GETMINMAXINFO:
+    {
+        auto* info = reinterpret_cast<MINMAXINFO*>(lp);
+        info->ptMinTrackSize.x = kSettingsWindowMinWidth;
+        info->ptMinTrackSize.y = kSettingsWindowMinHeight;
+        result = 0;
+        return true;
+    }
+    case WM_CTLCOLORSTATIC:
+    {
+        HDC hdc = (HDC)wp;
+        SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
+        SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+        result = (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+        return true;
+    }
+    default:
+        return false;
     }
 }
