@@ -21,8 +21,6 @@
 
 // Settings controls hosted by the main window
 #define IDC_CHK_ENABLED     1020
-#define IDC_BTN_SETTINGS    1021
-#define IDC_BTN_HIDE        1022
 #define IDC_CHK_BINDING     1023
 #define IDC_LIST_BIND_WINDOWS 1024
 #define IDC_LIST_BIND_PROCESSES 1025

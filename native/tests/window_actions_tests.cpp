@@ -12,6 +12,27 @@ int wmain()
         return 1;
     }
 
+    RECT requestedWindow{ 0, 0, 800, 832 };
+    RECT workArea{ 100, 50, 900, 650 };
+    RECT fittedWindow = mouse_lock::FitWindowRectToWorkArea(requestedWindow, workArea);
+    if (fittedWindow.left != 100 || fittedWindow.top != 50 ||
+        fittedWindow.right != 900 || fittedWindow.bottom != 650)
+    {
+        std::fprintf(stderr,
+            "FAIL: main window must fit within a smaller work area\n");
+        return 1;
+    }
+
+    requestedWindow = RECT{ 0, 0, 400, 200 };
+    fittedWindow = mouse_lock::FitWindowRectToWorkArea(requestedWindow, workArea);
+    if (fittedWindow.left != 300 || fittedWindow.top != 250 ||
+        fittedWindow.right != 700 || fittedWindow.bottom != 450)
+    {
+        std::fprintf(stderr,
+            "FAIL: main window must be centered within a larger work area\n");
+        return 1;
+    }
+
     if (!mouse_lock::ShouldHideMainWindowOnClose(false) ||
         mouse_lock::ShouldHideMainWindowOnClose(true))
     {
@@ -40,12 +61,18 @@ int wmain()
 
     mouse_lock::RestoreMainWindow(window);
     bool restored = IsWindowVisible(window) && !IsIconic(window);
+    ShowWindow(window, SW_MINIMIZE);
+    mouse_lock::RestoreMainWindow(window);
+    mouse_lock::RestoreMainWindow(window);
+    bool restoredAfterRepeatedLaunch =
+        IsWindowVisible(window) && !IsIconic(window);
     ShowWindow(window, SW_HIDE);
     DestroyWindow(window);
 
-    if (!restored)
+    if (!restored || !restoredAfterRepeatedLaunch)
     {
-        std::fprintf(stderr, "FAIL: restoring the main window must unminimize it\n");
+        std::fprintf(stderr,
+            "FAIL: repeated main-window restoration must unminimize the window\n");
         return 1;
     }
 

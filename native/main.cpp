@@ -1751,7 +1751,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     wc.hIcon = g_icon;
     wc.hIconSm = g_icon;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = kMainClass;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
     {
@@ -1764,7 +1764,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     }
 
     RECT rc{ 0, 0, kSettingsWindowWidth, kSettingsWindowHeight };
-    DWORD style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD style = WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
+        WS_MAXIMIZEBOX | WS_MINIMIZEBOX;
     if (!AdjustWindowRectEx(&rc, style, FALSE, 0))
     {
         LOG_ERROR(L"主窗口尺寸计算失败 (错误码 %d)", GetLastError());
@@ -1775,8 +1776,28 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         return 1;
     }
 
-    g_hwnd = CreateWindowExW(0, kMainClass, L"鼠标锁定 - 设置", style,
-        CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
+    RECT workArea{};
+    POINT cursor{};
+    HMONITOR monitor = GetCursorPos(&cursor)
+        ? MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
+        : MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO monitorInfo{};
+    monitorInfo.cbSize = sizeof(monitorInfo);
+    if (!monitor || !GetMonitorInfoW(monitor, &monitorInfo))
+    {
+        workArea.right = GetSystemMetrics(SM_CXSCREEN);
+        workArea.bottom = GetSystemMetrics(SM_CYSCREEN);
+    }
+    else
+    {
+        workArea = monitorInfo.rcWork;
+    }
+    RECT fittedRect = mouse_lock::FitWindowRectToWorkArea(rc, workArea);
+
+    g_hwnd = CreateWindowExW(WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
+        kMainClass, L"鼠标锁定 - 设置", style,
+        fittedRect.left, fittedRect.top,
+        fittedRect.right - fittedRect.left, fittedRect.bottom - fittedRect.top,
         nullptr, nullptr, hInstance, nullptr);
     if (!g_hwnd)
     {
@@ -1832,8 +1853,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         }
         if (result == 0)
             break;
-        TranslateMessage(&m);
-        DispatchMessageW(&m);
+        if (!IsDialogMessageW(g_hwnd, &m))
+        {
+            TranslateMessage(&m);
+            DispatchMessageW(&m);
+        }
     }
 
     CloseHandle(hMutex);
