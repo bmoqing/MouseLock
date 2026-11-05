@@ -4,6 +4,14 @@
 
 int wmain()
 {
+    if (mouse_lock::ShouldHandleGlobalHotkeys(true) ||
+        !mouse_lock::ShouldHandleGlobalHotkeys(false))
+    {
+        std::fprintf(stderr,
+            "FAIL: global hotkeys must be suppressed during shortcut capture\n");
+        return 1;
+    }
+
     if (!mouse_lock::ShouldHideMainWindowOnClose(false) ||
         mouse_lock::ShouldHideMainWindowOnClose(true))
     {

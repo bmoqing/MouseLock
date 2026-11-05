@@ -48,6 +48,7 @@ namespace
     std::unordered_set<int> g_swallowedKeyboardKeys; // 已吞掉按下事件的键
     std::unordered_set<int> g_swallowedMouseButtons; // 已吞掉按下事件的鼠标键
     std::atomic_bool g_unlockSyncPosted{ false };
+    std::atomic_bool g_hotkeyCaptureActive{ false };
     std::vector<HWINEVENTHOOK> g_winEventHooks;  // 窗口事件钩子（跟踪前台窗口）
 
     // ========== UI 资源 ==========
@@ -601,40 +602,47 @@ namespace
 
             RequestUnlockSync();
 
-            if (isDown && firstDown && !g_settingsOpen &&
-                TryMatch(g_cfg.toggleLock, k->vkCode))
+            if (mouse_lock::ShouldHandleGlobalHotkeys(
+                    g_hotkeyCaptureActive.load(std::memory_order_acquire)))
             {
-                if (g_hwnd && PostMessageW(g_hwnd, kMsgToggleLock, 0, 0))
+                if (isDown && firstDown && !g_settingsOpen &&
+                    TryMatch(g_cfg.toggleLock, k->vkCode))
                 {
-                    g_swallowedKeyboardKeys.insert((int)k->vkCode);
-                    return 1;
-                }
-            }
-
-            if (isDown && firstDown && g_enabled && !g_settingsOpen)
-            {
-                if (TryMatch(g_cfg.jumpLeft, k->vkCode))
-                {
-                    if (g_hwnd && PostMessageW(g_hwnd, kMsgJump, (WPARAM)-1, 0))
-                    {
-                        g_swallowedKeyboardKeys.insert((int)k->vkCode);
-                        return 1; // 吞掉按键
-                    }
-                }
-                if (TryMatch(g_cfg.jumpRight, k->vkCode))
-                {
-                    if (g_hwnd && PostMessageW(g_hwnd, kMsgJump, (WPARAM)1, 0))
+                    if (g_hwnd && PostMessageW(g_hwnd, kMsgToggleLock, 0, 0))
                     {
                         g_swallowedKeyboardKeys.insert((int)k->vkCode);
                         return 1;
                     }
                 }
+
+                if (isDown && firstDown && g_enabled && !g_settingsOpen)
+                {
+                    if (TryMatch(g_cfg.jumpLeft, k->vkCode))
+                    {
+                        if (g_hwnd && PostMessageW(g_hwnd, kMsgJump, (WPARAM)-1, 0))
+                        {
+                            g_swallowedKeyboardKeys.insert((int)k->vkCode);
+                            return 1; // 吞掉按键
+                        }
+                    }
+                    if (TryMatch(g_cfg.jumpRight, k->vkCode))
+                    {
+                        if (g_hwnd && PostMessageW(g_hwnd, kMsgJump, (WPARAM)1, 0))
+                        {
+                            g_swallowedKeyboardKeys.insert((int)k->vkCode);
+                            return 1;
+                        }
+                    }
+                }
+
+                if (isDown && g_swallowedKeyboardKeys.count((int)k->vkCode) != 0)
+                    return 1;
             }
 
-            if (isDown && g_swallowedKeyboardKeys.count((int)k->vkCode) != 0)
-                return 1;
-
-            if (isUp && g_swallowedKeyboardKeys.erase((int)k->vkCode) != 0)
+            bool wasSwallowed = isUp &&
+                g_swallowedKeyboardKeys.erase((int)k->vkCode) != 0;
+            if (wasSwallowed && mouse_lock::ShouldHandleGlobalHotkeys(
+                    g_hotkeyCaptureActive.load(std::memory_order_acquire)))
                 return 1;
         }
         return CallNextHookEx(nullptr, nCode, wp, lp);
@@ -677,7 +685,9 @@ namespace
                     bool firstDown = g_heldMouseButtons.insert(button).second;
                     RequestUnlockSync();
 
-                    if (firstDown && g_enabled && !g_settingsOpen)
+                    if (firstDown && g_enabled && !g_settingsOpen &&
+                        mouse_lock::ShouldHandleGlobalHotkeys(
+                            g_hotkeyCaptureActive.load(std::memory_order_acquire)))
                     {
                         int direction = 0;
                         if (TryMatch(g_cfg.jumpLeft, (UINT)button))
@@ -700,7 +710,9 @@ namespace
                 {
                     g_heldMouseButtons.erase(button);
                     RequestUnlockSync();
-                    if (g_swallowedMouseButtons.erase(button) != 0)
+                    bool wasSwallowed = g_swallowedMouseButtons.erase(button) != 0;
+                    if (wasSwallowed && mouse_lock::ShouldHandleGlobalHotkeys(
+                            g_hotkeyCaptureActive.load(std::memory_order_acquire)))
                         return 1;
                 }
             }
