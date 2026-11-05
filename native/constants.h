@@ -29,7 +29,7 @@ constexpr int kMainWindowHeight = 150;
 
 // 设置对话框尺寸
 constexpr int kSettingsWindowWidth = 800;
-constexpr int kSettingsWindowHeight = 800;
+constexpr int kSettingsWindowHeight = 832;
 constexpr int kSettingsWindowMinWidth = 800;  // 最小宽度
 constexpr int kSettingsWindowMinHeight = 600; // 低分辨率下允许缩小到的最小高度
 

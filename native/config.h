@@ -35,6 +35,7 @@ struct AppConfig
     bool autoStart = false;
     bool centerLock = false;
     bool foregroundBinding = false;
+    bool hideTrayIcon = false;
     // 统一保存应用程序可执行文件路径；boundProcessPaths 仅为旧配置兼容保留。
     std::vector<std::wstring> boundWindowPaths;
     std::vector<std::wstring> boundProcessPaths;

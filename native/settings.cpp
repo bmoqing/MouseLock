@@ -60,6 +60,7 @@ namespace
         HWND chkAutoStart = nullptr;
         HWND chkCenter = nullptr;
         HWND chkBinding = nullptr;
+        HWND chkHideTrayIcon = nullptr;
         HWND applicationList = nullptr;
         HWND bindingList = nullptr;
         HWND applicationSearch = nullptr;
@@ -579,6 +580,8 @@ namespace
             g_ctx->cfg.centerLock ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_ctx->chkBinding, BM_SETCHECK,
             g_ctx->cfg.foregroundBinding ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_ctx->chkHideTrayIcon, BM_SETCHECK,
+            g_ctx->cfg.hideTrayIcon ? BST_CHECKED : BST_UNCHECKED, 0);
     }
 
     // 将当前配置实时提交（写回并立即生效）
@@ -724,7 +727,7 @@ namespace
         int rightWidth = width - leftWidth - 16;
 
         // Keep the hidden-entry checkbox and action buttons outside both lists.
-        const int listTop = 369;
+        const int listTop = 397;
         const int labelHeight = 16;
         const int labelSearchGap = 4;
         const int searchHeight = 23;
@@ -737,12 +740,12 @@ namespace
         int buttonTop = client.bottom - bottomMargin - buttonHeight;
         int hiddenTop = buttonTop - buttonGap - hiddenHeight;
         int listBottom = hiddenTop - hiddenGap;
-        MoveWindow(g_ctx->applicationLabel, 16, 322, leftWidth, labelHeight, TRUE);
-        MoveWindow(g_ctx->applicationSearch, 16, 342, leftWidth, searchHeight, TRUE);
+        MoveWindow(g_ctx->applicationLabel, 16, 350, leftWidth, labelHeight, TRUE);
+        MoveWindow(g_ctx->applicationSearch, 16, 370, leftWidth, searchHeight, TRUE);
         MoveWindow(g_ctx->applicationList, 16, listTop, leftWidth, listBottom - listTop, TRUE);
         ListView_SetColumnWidth(g_ctx->applicationList, 0, (std::max)(0, leftWidth - 4));
-        MoveWindow(g_ctx->bindingLabel, rightX, 322, rightWidth, labelHeight, TRUE);
-        MoveWindow(g_ctx->bindingList, rightX, 342, rightWidth, listBottom - 342, TRUE);
+        MoveWindow(g_ctx->bindingLabel, rightX, 350, rightWidth, labelHeight, TRUE);
+        MoveWindow(g_ctx->bindingList, rightX, 370, rightWidth, listBottom - 370, TRUE);
         ListView_SetColumnWidth(g_ctx->bindingList, 0, (std::max)(0, rightWidth - 4));
         MoveWindow(g_ctx->showHidden, 16, hiddenTop, width, hiddenHeight, TRUE);
         MoveWindow(g_ctx->refreshBindings, 16, buttonTop, 100, buttonHeight, TRUE);
@@ -800,20 +803,22 @@ namespace
             CreateLabel(hwnd, L"启动选项", 16, 238, true);
             g_ctx->chkSilent = CreateCheck(hwnd, L"启动时静默启动到托盘（不显示主窗口）", 16, 262, IDC_CHK_SILENT);
             g_ctx->chkAutoStart = CreateCheck(hwnd, L"开机自动启动", 16, 290, IDC_CHK_AUTOSTART);
+            g_ctx->chkHideTrayIcon = CreateCheck(hwnd,
+                L"隐藏系统托盘图标（再次运行程序可打开设置）", 16, 318, IDC_CHK_HIDE_TRAY_ICON);
 
-            g_ctx->applicationLabel = CreateLabel(hwnd, L"绑定应用（窗口和进程统一）", 16, 322, true);
+            g_ctx->applicationLabel = CreateLabel(hwnd, L"绑定应用（窗口和进程统一）", 16, 350, true);
             g_ctx->applicationSearch = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 342, 360, 23, hwnd,
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 370, 360, 23, hwnd,
                 (HMENU)(INT_PTR)IDC_EDIT_WINDOW_SEARCH, nullptr, nullptr);
             g_ctx->applicationList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
                     LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-                16, 369, 360, 120, hwnd, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
-            g_ctx->bindingLabel = CreateLabel(hwnd, L"当前已绑定", 392, 322, true);
+                16, 397, 360, 120, hwnd, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
+            g_ctx->bindingLabel = CreateLabel(hwnd, L"当前已绑定", 392, 350, true);
             g_ctx->bindingList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
                     LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-                392, 342, 360, 322, hwnd, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
+                392, 370, 360, 322, hwnd, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
             ConfigureVirtualList(g_ctx->applicationList);
             ConfigureVirtualList(g_ctx->bindingList);
             g_ctx->showHidden = CreateCheck(hwnd, L"显示无可见窗口的后台应用", 16, 654, IDC_CHK_SHOW_HIDDEN);
@@ -830,6 +835,8 @@ namespace
             SendMessageW(g_ctx->chkAutoStart, BM_SETCHECK, g_ctx->cfg.autoStart ? BST_CHECKED : BST_UNCHECKED, 0);
             SendMessageW(g_ctx->chkCenter, BM_SETCHECK, g_ctx->cfg.centerLock ? BST_CHECKED : BST_UNCHECKED, 0);
             SendMessageW(g_ctx->chkBinding, BM_SETCHECK, g_ctx->cfg.foregroundBinding ? BST_CHECKED : BST_UNCHECKED, 0);
+            SendMessageW(g_ctx->chkHideTrayIcon, BM_SETCHECK,
+                g_ctx->cfg.hideTrayIcon ? BST_CHECKED : BST_UNCHECKED, 0);
             SendMessageW(g_ctx->showHidden, BM_SETCHECK, BST_UNCHECKED, 0);
             RefreshBindingLists();
             LayoutBindingControls(hwnd);
@@ -929,6 +936,11 @@ namespace
                 break;
             case IDC_CHK_BINDING:
                 g_ctx->cfg.foregroundBinding = SendMessageW(g_ctx->chkBinding, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                Commit();
+                break;
+            case IDC_CHK_HIDE_TRAY_ICON:
+                g_ctx->cfg.hideTrayIcon =
+                    SendMessageW(g_ctx->chkHideTrayIcon, BM_GETCHECK, 0, 0) == BST_CHECKED;
                 Commit();
                 break;
             case IDC_BTN_REFRESH_BINDINGS:

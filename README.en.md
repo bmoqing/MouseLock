@@ -13,6 +13,17 @@
   <strong>A mouse locking tool designed for multi-monitor users. It keeps the mouse within the current display to prevent accidental movement to another screen during games, presentations, or precision drawing.</strong>
 </p>
 
+## v2.1.3
+
+- Added an option to hide the system tray icon. Run `MouseLock.exe` again to reopen the main window and Settings.
+- When the tray icon is hidden, the main window provides an Exit action. With the tray icon visible, closing the window still hides it to the tray.
+- Fixed relaunching the app so a minimized main window is restored correctly.
+
+## v2.1.2
+
+- Mouse locking is off by default when the program starts.
+- Added the default `Ctrl + Alt + L` lock toggle hotkey, which can be customized in Settings.
+
 ## v2.1.1
 
 - Fixed an issue where the cursor could occasionally cross into a secondary monitor during fast, large mouse movements in some games.
@@ -56,14 +67,15 @@ Mouse locking is off by default when the program starts. All four hotkeys can be
 
 1. Download and run `MouseLock.exe`. The application requests administrator privileges through its UAC manifest.
 2. Check **Enable mouse locking** in the main window.
-3. Closing the main window hides it in the system tray; it does not exit the application.
-4. Right-click the tray icon to enable or disable locking, switch monitors, open binding settings, open general settings, or exit.
+3. When the tray icon is visible, closing the main window hides it without exiting. With the tray icon hidden, closing the main window exits the application.
+4. When the tray icon is visible, right-click it to enable or disable locking, switch monitors, open binding settings, open general settings, or exit.
 5. Configure the following options in Settings:
-   - The three hotkeys.
+   - The four hotkeys.
    - Lock the mouse to the center of the current monitor.
    - Lock only when a selected foreground application is active. Select multiple applications from the binding list. Window and process bindings use the application path as a single identity, so all windows of the application are covered.
    - Search the application list. By default, only applications with visible windows are shown; enable **Show background applications without visible windows** to find background processes, then use **Bind selected items** to apply the selection.
    - Start silently in the system tray.
+   - Hide the system tray icon. Run `MouseLock.exe` again to reopen the main window and Settings.
    - Start automatically with Windows using a scheduled task that runs at logon with elevated privileges.
 
 Configuration and logs are stored in `%LOCALAPPDATA%\MouseLock` by default, separate from the executable directory. An existing `config.json` beside the executable is migrated on first launch. If the user data directory is unavailable, the application falls back to the executable directory; if the log cannot be written there, it also tries a temporary directory.

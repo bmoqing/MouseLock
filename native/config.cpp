@@ -535,6 +535,9 @@ AppConfig LoadConfig(const std::wstring& path)
     if (const JsonValue* v = find(root.obj, "ForegroundBinding"))
         if (v->type == JsonValue::Type::Bool)
             cfg.foregroundBinding = v->b;
+    if (const JsonValue* v = find(root.obj, "HideTrayIcon"))
+        if (v->type == JsonValue::Type::Bool)
+            cfg.hideTrayIcon = v->b;
     if (const JsonValue* v = find(root.obj, "BoundWindowPaths"))
         if (v->type == JsonValue::Type::Array)
             for (const auto& item : v->arr)
@@ -598,6 +601,8 @@ bool SaveConfig(const std::wstring& path, const AppConfig& cfg)
     root.obj["CenterLock"].b = cfg.centerLock;
     root.obj["ForegroundBinding"].type = JsonValue::Type::Bool;
     root.obj["ForegroundBinding"].b = cfg.foregroundBinding;
+    root.obj["HideTrayIcon"].type = JsonValue::Type::Bool;
+    root.obj["HideTrayIcon"].b = cfg.hideTrayIcon;
     root.obj["BoundWindowPaths"].type = JsonValue::Type::Array;
     for (const auto& path : cfg.boundWindowPaths)
     {

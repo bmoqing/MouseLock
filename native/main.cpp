@@ -19,6 +19,7 @@
 #include "handle_guard.h"
 #include "constants.h"
 #include "error_helpers.h"
+#include "window_actions.h"
 
 // ---------------- 全局应用状态 ----------------
 namespace
@@ -85,6 +86,7 @@ namespace
     constexpr UINT kMsgUnlockSync = WM_APP + 3;
     constexpr UINT kMsgMouseRevalidate = WM_APP + 4;
     constexpr UINT kMsgToggleLock = WM_APP + 5;
+    constexpr UINT kMsgRestoreMain = WM_APP + 6;
     std::atomic_bool g_mouseRevalidatePosted{ false };
     std::atomic_long g_lastMouseX{ 0 };
     std::atomic_long g_lastMouseY{ 0 };
@@ -483,8 +485,11 @@ namespace
         // 托盘 tooltip
         lstrcpynW(g_nid.szTip, g_enabled ? L"鼠标锁定 - 已启用" : L"鼠标锁定 - 已停用",
             sizeof(g_nid.szTip) / sizeof(WCHAR));
-        g_nid.uFlags = NIF_TIP;
-        Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+        if (g_trayAdded)
+        {
+            g_nid.uFlags = NIF_TIP;
+            Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+        }
 
         // 主窗口复选框
         if (g_hwnd)
@@ -492,6 +497,10 @@ namespace
             HWND chk = GetDlgItem(g_hwnd, IDC_CHK_ENABLED);
             if (chk)
                 SendMessageW(chk, BM_SETCHECK, g_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+
+            HWND hideButton = GetDlgItem(g_hwnd, IDC_BTN_HIDE);
+            if (hideButton)
+                SetWindowTextW(hideButton, g_cfg.hideTrayIcon ? L"退出程序" : L"隐藏到托盘");
         }
 
         if (g_trayMenu)
@@ -508,15 +517,16 @@ namespace
     void ShowMain()
     {
         if (!g_hwnd) return;
-        ShowWindow(g_hwnd, SW_SHOW);
-        SetForegroundWindow(g_hwnd);
-        SetActiveWindow(g_hwnd);
+        mouse_lock::RestoreMainWindow(g_hwnd);
     }
 
     void HideMain() { if (g_hwnd) ShowWindow(g_hwnd, SW_HIDE); }
 
     void ShowBalloon(const wchar_t* info)
     {
+        if (!g_trayAdded)
+            return;
+
         g_nid.uFlags = NIF_INFO;
         lstrcpynW(g_nid.szInfoTitle, L"鼠标锁定", sizeof(g_nid.szInfoTitle) / sizeof(WCHAR));
         lstrcpynW(g_nid.szInfo, info, sizeof(g_nid.szInfo) / sizeof(WCHAR));
@@ -527,7 +537,7 @@ namespace
 
     bool TryAddTrayIcon(bool logFailure)
     {
-        if (!g_hwnd || g_trayAdded)
+        if (!g_hwnd || g_trayAdded || g_cfg.hideTrayIcon)
             return g_trayAdded;
 
         g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
@@ -537,6 +547,28 @@ namespace
         else if (logFailure)
             LOG_WARN(L"托盘图标添加失败，将稍后重试 (错误码 %d)", GetLastError());
         return g_trayAdded;
+    }
+
+    void ApplyTrayIconPreference(bool logFailure)
+    {
+        if (g_cfg.hideTrayIcon)
+        {
+            if (!g_trayAdded)
+                return;
+
+            if (Shell_NotifyIconW(NIM_DELETE, &g_nid))
+            {
+                g_trayAdded = false;
+                LOG_INFO(L"系统托盘图标已隐藏");
+            }
+            else if (logFailure)
+            {
+                LOG_WARN(L"隐藏系统托盘图标失败 (错误码 %d)", GetLastError());
+            }
+            return;
+        }
+
+        TryAddTrayIcon(logFailure);
     }
 
     // ---------------- 钩子 ----------------
@@ -1255,6 +1287,7 @@ namespace
         bool prevAutoStart = g_cfg.autoStart;
         bool prevCenterLock = g_cfg.centerLock;
         bool prevForegroundBinding = g_cfg.foregroundBinding;
+        bool prevHideTrayIcon = g_cfg.hideTrayIcon;
         std::vector<HWND> boundWindows(g_boundWindows.begin(), g_boundWindows.end());
         std::vector<DWORD> boundProcesses(g_boundProcesses.begin(), g_boundProcesses.end());
         g_settingsOpen = true;
@@ -1263,6 +1296,7 @@ namespace
             AppConfig oldCfg = g_cfg;
             bool centerLockChanged = cfg.centerLock != prevCenterLock;
             bool foregroundBindingChanged = cfg.foregroundBinding != prevForegroundBinding;
+            bool hideTrayIconChanged = cfg.hideTrayIcon != prevHideTrayIcon;
             if (cfg.autoStart != prevAutoStart)
             {
                 bool requestedAutoStart = cfg.autoStart;
@@ -1291,6 +1325,12 @@ namespace
                 cfg = oldCfg;
                 g_cfg = oldCfg;
                 return;
+            }
+            if (hideTrayIconChanged)
+            {
+                prevHideTrayIcon = cfg.hideTrayIcon;
+                ApplyTrayIconPreference(true);
+                SyncUi();
             }
             if ((centerLockChanged || foregroundBindingChanged) &&
                 g_enabled && !g_unlockedByHold)
@@ -1432,7 +1472,7 @@ namespace
         {
             // Explorer 重启后原托盘图标已经失效，需要重新注册。
             g_trayAdded = false;
-            TryAddTrayIcon(true);
+            ApplyTrayIconPreference(true);
             return 0;
         }
 
@@ -1455,7 +1495,12 @@ namespace
                 break;
             }
             case IDC_BTN_SETTINGS: OpenSettings(); break;
-            case IDC_BTN_HIDE: HideMain(); break;
+            case IDC_BTN_HIDE:
+                if (g_cfg.hideTrayIcon)
+                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                else
+                    HideMain();
+                break;
             case ID_TRAY_TOGGLE:
             case ID_TRAY_JUMPPREV:
             case ID_TRAY_JUMPNEXT:
@@ -1482,6 +1527,10 @@ namespace
 
         case kMsgToggleLock:
             SetEnabled(!g_enabled);
+            return 0;
+
+        case kMsgRestoreMain:
+            ShowMain();
             return 0;
 
         case kMsgUnlockSync:
@@ -1531,15 +1580,15 @@ namespace
                 g_locker.Revalidate(false);
                 ReconcileUnlockState();
                 ReassertLock();
-                // 登录/开机时任务栏可能尚未就绪，NIM_ADD 会静默失败，这里持续重试
-                if (!g_trayAdded)
-                    TryAddTrayIcon(false);
+                // Explorer 尚未就绪时重试添加；隐藏偏好则保持移除状态。
+                ApplyTrayIconPreference(false);
             }
             return 0;
         }
 
         case WM_CLOSE:
-            if (!g_allowClose)
+            if (!g_allowClose &&
+                mouse_lock::ShouldHideMainWindowOnClose(g_cfg.hideTrayIcon))
             {
                 HideMain();
                 return 0;
@@ -1582,6 +1631,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     }
     if (mutexError == ERROR_ALREADY_EXISTS)
     {
+        HWND existingWindow = FindWindowW(kMainClass, nullptr);
+        if (existingWindow && PostMessageW(existingWindow, kMsgRestoreMain, 0, 0))
+        {
+            CloseHandle(hMutex);
+            return 0;
+        }
+
         MessageBoxW(nullptr, L"已经有一个 MouseLock 程序在运行。", L"MouseLock",
             MB_OK | MB_ICONINFORMATION);
         CloseHandle(hMutex);
@@ -1777,7 +1833,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     g_nid.hIcon = g_icon;
     lstrcpynW(g_nid.szTip, L"鼠标锁定", sizeof(g_nid.szTip) / sizeof(WCHAR));
     g_trayAdded = false;
-    if (!TryAddTrayIcon(true))
+    if (!g_cfg.hideTrayIcon && !TryAddTrayIcon(true))
         LOG_WARN(L"托盘图标初始化失败，将在定时器中重试");
 
     InstallHooks();
