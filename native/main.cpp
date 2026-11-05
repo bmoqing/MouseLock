@@ -13,6 +13,7 @@
 
 #include "config.h"
 #include "locker.h"
+#include "lock_safety.h"
 #include "settings.h"
 #include "resource.h"
 #include "logger.h"
@@ -454,6 +455,14 @@ namespace
     {
         if (g_enabled == v)
             return;
+        if (v && !mouse_lock::CanEnableLock(g_cfg))
+        {
+            MessageBoxW(g_hwnd,
+                L"中心锁定会将鼠标固定在屏幕正中间。请先设置“临时解锁键”或“启用/停用锁定”快捷键，再启用鼠标锁定。",
+                L"MouseLock - 安全提示", MB_OK | MB_ICONWARNING);
+            SyncUi();
+            return;
+        }
         g_enabled = v;
         g_unlockedByHold = false;
         LOG_INFO(L"锁定状态: %s", v ? L"启用" : L"禁用");
@@ -1294,6 +1303,14 @@ namespace
         bool backupTimerPaused = g_hwnd && KillTimer(g_hwnd, kTimerBackup) != FALSE;
         ShowSettingsDialog(g_hwnd, g_cfg, boundWindows, boundProcesses, [&](AppConfig& cfg) {
             AppConfig oldCfg = g_cfg;
+            if (g_enabled && !mouse_lock::CanEnableLock(cfg))
+            {
+                MessageBoxW(g_hwnd,
+                    L"中心锁定状态下至少需要保留“临时解锁键”或“启用/停用锁定”快捷键，否则无法退出锁定。",
+                    L"MouseLock - 安全提示", MB_OK | MB_ICONWARNING);
+                cfg = oldCfg;
+                return;
+            }
             bool centerLockChanged = cfg.centerLock != prevCenterLock;
             bool foregroundBindingChanged = cfg.foregroundBinding != prevForegroundBinding;
             bool hideTrayIconChanged = cfg.hideTrayIcon != prevHideTrayIcon;

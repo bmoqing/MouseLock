@@ -13,6 +13,11 @@
   <strong>A mouse locking tool designed for multi-monitor users. It keeps the mouse within the current display to prevent accidental movement to another screen during games, presentations, or precision drawing.</strong>
 </p>
 
+## v2.1.4
+
+- Added a safety guard for center locking: keep at least one of the temporary-unlock or lock-toggle hotkeys configured.
+- Clearing the last exit hotkey restores the previous setting; enabling the lock without an available exit hotkey is blocked with a warning.
+
 ## v2.1.3
 
 - Added an option to hide the system tray icon. Run `MouseLock.exe` again to reopen the main window and Settings.
