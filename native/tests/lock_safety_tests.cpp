@@ -1,4 +1,5 @@
 #include "../lock_safety.h"
+#include "../hotkey_validation.h"
 
 #include <cstdio>
 
@@ -79,6 +80,39 @@ namespace
         config.unlock.key = -2;
         return !mouse_lock::CanEnableLock(config);
     }
+
+    bool TestDuplicateHotkeyIsRejectedAcrossActions()
+    {
+        AppConfig config;
+        config.unlock.modifiers = { Modifier::Control, Modifier::Alt };
+        config.unlock.key = 'I';
+        Hotkey candidate{{ Modifier::Alt, Modifier::Control }, 'I'};
+        return mouse_lock::ConflictsWithOtherHotkey(
+            config, mouse_lock::HotkeyAction::ToggleLock, candidate);
+    }
+
+    bool TestDifferentHotkeysAndUnsetHotkeysDoNotConflict()
+    {
+        AppConfig config;
+        config.unlock.modifiers = { Modifier::Control };
+        config.unlock.key = 'I';
+        Hotkey different{{ Modifier::Control }, 'J'};
+        Hotkey unset;
+        unset.key = -1;
+        return !mouse_lock::ConflictsWithOtherHotkey(
+                config, mouse_lock::HotkeyAction::ToggleLock, different) &&
+            !mouse_lock::ConflictsWithOtherHotkey(
+                config, mouse_lock::HotkeyAction::ToggleLock, unset);
+    }
+
+    bool TestHotkeyDoesNotConflictWithItsOwnAction()
+    {
+        AppConfig config;
+        config.jumpRight.modifiers = { Modifier::Control, Modifier::Alt };
+        config.jumpRight.key = 0x27;
+        return !mouse_lock::ConflictsWithOtherHotkey(
+            config, mouse_lock::HotkeyAction::JumpRight, config.jumpRight);
+    }
 }
 
 int main()
@@ -89,7 +123,10 @@ int main()
         !TestJumpHotkeysDoNotCountAsAnExitHotkey() ||
         !TestModifierlessEmptyHotkeyDoesNotCountAsConfigured() ||
         !TestModifierOnlyToggleHotkeyDoesNotCountAsConfigured() ||
-        !TestInvalidNegativeHotkeyDoesNotCountAsConfigured())
+        !TestInvalidNegativeHotkeyDoesNotCountAsConfigured() ||
+        !TestDuplicateHotkeyIsRejectedAcrossActions() ||
+        !TestDifferentHotkeysAndUnsetHotkeysDoNotConflict() ||
+        !TestHotkeyDoesNotConflictWithItsOwnAction())
     {
         std::fprintf(stderr, "FAIL: center locking must retain a usable exit hotkey\n");
         return 1;

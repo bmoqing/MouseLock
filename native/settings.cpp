@@ -1,5 +1,6 @@
 // 设置对话框实现：程序化创建控件，快捷键录入框采用子类化捕获按键。
 #include "settings.h"
+#include "hotkey_validation.h"
 #include "handle_guard.h"
 #include "constants.h"
 
@@ -594,6 +595,35 @@ namespace
         }
     }
 
+    mouse_lock::HotkeyAction HotkeyActionFor(const Hotkey* hotkey)
+    {
+        if (hotkey == &g_ctx->cfg.toggleLock)
+            return mouse_lock::HotkeyAction::ToggleLock;
+        if (hotkey == &g_ctx->cfg.jumpLeft)
+            return mouse_lock::HotkeyAction::JumpLeft;
+        if (hotkey == &g_ctx->cfg.jumpRight)
+            return mouse_lock::HotkeyAction::JumpRight;
+        return mouse_lock::HotkeyAction::Unlock;
+    }
+
+    bool TrySetHotkey(HWND edit, Hotkey& hotkey, const Hotkey& candidate)
+    {
+        if (mouse_lock::ConflictsWithOtherHotkey(
+                g_ctx->cfg, HotkeyActionFor(&hotkey), candidate))
+        {
+            UpdateEditText(edit, hotkey);
+            MessageBeep(MB_ICONWARNING);
+            MessageBoxW(g_ctx->hwnd, L"这个快捷键已分配给其他功能，请选择不同的快捷键。",
+                L"快捷键冲突", MB_OK | MB_ICONWARNING);
+            return false;
+        }
+
+        hotkey = candidate;
+        UpdateEditText(edit, hotkey);
+        Commit();
+        return true;
+    }
+
     // 快捷键录入框子类过程
     LRESULT CALLBACK HotkeyEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     {
@@ -612,10 +642,11 @@ namespace
             int mouseButton = MouseButtonVkFromMessage(msg, wp);
             if (hk && mouseButton != 0)
             {
-                hk->key = mouseButton;
-                hk->modifiers = GetPressedModifiers();
-                UpdateEditText(hwnd, *hk);
-                Commit();
+                Hotkey candidate;
+                candidate.key = mouseButton;
+                candidate.modifiers = GetPressedModifiers();
+                if (!TrySetHotkey(hwnd, *hk, candidate))
+                    return 0;
                 SetFocus(GetParent(hwnd)); // 输入完成后自动失焦
                 return 0;
             }
@@ -636,10 +667,11 @@ namespace
                 }
                 if (!IsModifierVk((int)wp))
                 {
-                    hk->key = (int)wp;
-                    hk->modifiers = GetPressedModifiers();
-                    UpdateEditText(hwnd, *hk);
-                    Commit();
+                    Hotkey candidate;
+                    candidate.key = static_cast<int>(wp);
+                    candidate.modifiers = GetPressedModifiers();
+                    if (!TrySetHotkey(hwnd, *hk, candidate))
+                        return 0;
                     SetFocus(GetParent(hwnd)); // 输入完成后自动失焦
                     return 0;
                 }
@@ -762,9 +794,7 @@ namespace
 
     void ApplyDefaultGood(HWND edit, Hotkey& hk, const Hotkey& def)
     {
-        hk = def;
-        UpdateEditText(edit, hk);
-        Commit();
+        TrySetHotkey(edit, hk, def);
     }
 
     void ClearGood(HWND edit, Hotkey& hk)
