@@ -1,9 +1,20 @@
 #include "../window_actions.h"
+#include "../settings.h"
 
 #include <cstdio>
 
 int wmain()
 {
+    if (!IsSettingsCheckboxControlId(IDC_CHK_ENABLED) ||
+        !IsSettingsCheckboxControlId(IDC_CHK_CENTER) ||
+        !IsSettingsCheckboxControlId(IDC_CHK_SHOW_HIDDEN) ||
+        IsSettingsCheckboxControlId(IDC_BTN_REFRESH_BINDINGS))
+    {
+        std::fprintf(stderr,
+            "FAIL: only settings checkboxes should use the main-window background\n");
+        return 1;
+    }
+
     if (mouse_lock::ShouldHandleGlobalHotkeys(true) ||
         !mouse_lock::ShouldHandleGlobalHotkeys(false))
     {

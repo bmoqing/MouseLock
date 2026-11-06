@@ -13,6 +13,12 @@
   <strong>A mouse locking tool designed for multi-monitor users. It keeps the mouse within the current display to prevent accidental movement to another screen during games, presentations, or precision drawing.</strong>
 </p>
 
+## v2.2.0
+
+- Made Settings the only main window. Launching the app opens Settings directly, with the lock toggle now on that screen.
+- Suppressed global lock and monitor-switch shortcuts while recording a shortcut to prevent key conflicts.
+- Matched checkbox and label backgrounds to the Settings window, fixing gray patches in the interface.
+
 ## v2.1.4
 
 - Added a safety guard for center locking: keep at least one of the temporary-unlock or lock-toggle hotkeys configured.

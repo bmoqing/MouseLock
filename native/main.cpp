@@ -15,7 +15,6 @@
 #include "locker.h"
 #include "lock_safety.h"
 #include "settings.h"
-#include "resource.h"
 #include "logger.h"
 #include "handle_guard.h"
 #include "constants.h"
@@ -1379,7 +1378,8 @@ namespace
         }
 
         if (msg == WM_COMMAND || msg == WM_NOTIFY || msg == WM_SIZE ||
-            msg == WM_GETMINMAXINFO || msg == WM_CTLCOLORSTATIC)
+            msg == WM_GETMINMAXINFO || msg == WM_CTLCOLORSTATIC ||
+            msg == WM_CTLCOLORBTN)
         {
             LRESULT settingsResult = 0;
             if (HandleSettingsMessage(hwnd, msg, wp, lp, settingsResult))
@@ -1751,7 +1751,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     wc.hIcon = g_icon;
     wc.hIconSm = g_icon;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = kMainClass;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
     {

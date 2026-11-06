@@ -5,6 +5,7 @@
 #include <functional>
 #include <vector>
 #include "config.h"
+#include "resource.h"
 
 using BindingChangedCallback = std::function<void(const std::vector<HWND>&,
                                                    const std::vector<DWORD>&,
@@ -18,6 +19,23 @@ struct SettingsCallbacks
     std::function<void(bool)> onEnabledChanged;
     std::function<void(bool)> onHotkeyCaptureChanged;
 };
+
+inline bool IsSettingsCheckboxControlId(int id)
+{
+    switch (id)
+    {
+    case IDC_CHK_ENABLED:
+    case IDC_CHK_SILENT:
+    case IDC_CHK_AUTOSTART:
+    case IDC_CHK_CENTER:
+    case IDC_CHK_BINDING:
+    case IDC_CHK_HIDE_TRAY_ICON:
+    case IDC_CHK_SHOW_HIDDEN:
+        return true;
+    default:
+        return false;
+    }
+}
 
 void CreateSettingsControls(HWND parent, const AppConfig& current, bool enabled,
                             const std::vector<HWND>& boundWindows,

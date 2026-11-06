@@ -8,7 +8,6 @@
 #include <map>
 #include <algorithm>
 #include <cwctype>
-#include "resource.h"
 #include <psapi.h>
 #include <commctrl.h>
 #include "logger.h"
@@ -979,12 +978,16 @@ bool HandleSettingsMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& r
         result = 0;
         return true;
     }
+    case WM_CTLCOLORBTN:
+        if (!IsSettingsCheckboxControlId(GetDlgCtrlID(reinterpret_cast<HWND>(lp))))
+            return false;
+        [[fallthrough]];
     case WM_CTLCOLORSTATIC:
     {
         HDC hdc = (HDC)wp;
-        SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
-        SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
-        result = (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        result = (LRESULT)GetSysColorBrush(COLOR_WINDOW);
         return true;
     }
     default:
