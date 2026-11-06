@@ -13,44 +13,6 @@
   <strong>A mouse locking tool designed for multi-monitor users. It keeps the mouse within the current display to prevent accidental movement to another screen during games, presentations, or precision drawing.</strong>
 </p>
 
-## v2.2.0
-
-- Made Settings the only main window. Launching the app opens Settings directly, with the lock toggle now on that screen.
-- Suppressed global lock and monitor-switch shortcuts while recording a shortcut to prevent key conflicts.
-- Matched checkbox and label backgrounds to the Settings window, fixing gray patches in the interface.
-
-## v2.1.4
-
-- Added a safety guard for center locking: keep at least one of the temporary-unlock or lock-toggle hotkeys configured.
-- Clearing the last exit hotkey restores the previous setting; enabling the lock without an available exit hotkey is blocked with a warning.
-
-## v2.1.3
-
-- Added an option to hide the system tray icon. Run `MouseLock.exe` again to reopen the main window and Settings.
-- When the tray icon is hidden, the main window provides an Exit action. With the tray icon visible, closing the window still hides it to the tray.
-- Fixed relaunching the app so a minimized main window is restored correctly.
-
-## v2.1.2
-
-- Mouse locking is off by default when the program starts.
-- Added the default `Ctrl + Alt + L` lock toggle hotkey, which can be customized in Settings.
-
-## v2.1.1
-
-- Fixed an issue where the cursor could occasionally cross into a secondary monitor during fast, large mouse movements in some games.
-- Added low-level mouse hook tracking for the latest cursor position, with immediate recovery when the cursor leaves the locked area or another application changes the clipping region.
-- Kept the 25 ms backup validation to improve stability during games, fullscreen transitions, and temporary mouse control by other applications.
-
-## v2.1.0
-
-- Added optional center locking and foreground application binding. Bindings use executable paths, apply to all windows of the application, and can find background processes without visible windows.
-- Added mouse button 4 and 5 support for keyboard shortcuts. They can be assigned to screen switching or temporary unlock.
-- Fixed an issue where the cursor could remain trapped by the old monitor boundary while dragging a bound application window between monitors. The old restriction is released during the move and reapplied on the destination monitor.
-- Improved lock state synchronization and monitor switching to reduce normal clicks being interpreted as drags in Adobe Premiere Pro, Photoshop, and similar applications.
-- Fixed garbled Chinese characters at the end of UTF-8 log lines and added startup, hook, lock, and scheduled task diagnostics.
-- Moved configuration and logs to `%LOCALAPPDATA%\MouseLock` by default. Existing configuration is migrated on first launch.
-- Made the startup task user-specific and added startup validation and repair.
-
 ## Features
 
 - **Smart locking**: Keeps the mouse cursor inside the current monitor.
