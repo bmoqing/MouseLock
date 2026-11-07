@@ -88,17 +88,68 @@ namespace
         DeleteFileW((path + L".tmp").c_str());
         return success;
     }
+
+    bool TestLockStateDefaultsUnlockedWhenMissing()
+    {
+        const std::wstring path = TestConfigPath();
+        if (path.empty())
+            return false;
+
+        bool success = false;
+        if (WriteText(path, "{}"))
+        {
+            const AppConfig config = LoadConfig(path);
+            success = !config.enabled && !config.enabledStateConfigured;
+        }
+        DeleteFileW(path.c_str());
+        DeleteFileW((path + L".tmp").c_str());
+        return success;
+    }
+
+    bool TestLockStateRoundTrips()
+    {
+        const std::wstring path = TestConfigPath();
+        if (path.empty())
+            return false;
+
+        bool success = false;
+        do
+        {
+            AppConfig config;
+            config.enabled = true;
+            if (!SaveConfig(path, config))
+                break;
+            config = LoadConfig(path);
+            if (!config.enabled || !config.enabledStateConfigured)
+                break;
+
+            config.enabled = false;
+            if (!SaveConfig(path, config))
+                break;
+            config = LoadConfig(path);
+            if (config.enabled || !config.enabledStateConfigured)
+                break;
+
+            success = true;
+        } while (false);
+
+        DeleteFileW(path.c_str());
+        DeleteFileW((path + L".tmp").c_str());
+        return success;
+    }
 }
 
 int wmain()
 {
-    if (!TestHiddenTrayPreferenceRoundTrips())
+    if (!TestHiddenTrayPreferenceRoundTrips() ||
+        !TestLockStateDefaultsUnlockedWhenMissing() ||
+        !TestLockStateRoundTrips())
     {
         std::fprintf(stderr,
-            "FAIL: hidden tray preference must round-trip and default to visible\n");
+            "FAIL: configuration preferences must round-trip and have safe defaults\n");
         return 1;
     }
 
-    std::puts("PASS: hidden tray preference round-trips and defaults to visible");
+    std::puts("PASS: configuration preferences round-trip and have safe defaults");
     return 0;
 }

@@ -529,6 +529,12 @@ AppConfig LoadConfig(const std::wstring& path)
     if (const JsonValue* v = find(root.obj, "AutoStart"))
         if (v->type == JsonValue::Type::Bool)
             cfg.autoStart = v->b;
+    if (const JsonValue* v = find(root.obj, "Enabled"))
+        if (v->type == JsonValue::Type::Bool)
+        {
+            cfg.enabled = v->b;
+            cfg.enabledStateConfigured = true;
+        }
     if (const JsonValue* v = find(root.obj, "CenterLock"))
         if (v->type == JsonValue::Type::Bool)
             cfg.centerLock = v->b;
@@ -597,6 +603,8 @@ bool SaveConfig(const std::wstring& path, const AppConfig& cfg)
     root.obj["StartSilent"].b = cfg.startSilent;
     root.obj["AutoStart"].type = JsonValue::Type::Bool;
     root.obj["AutoStart"].b = cfg.autoStart;
+    root.obj["Enabled"].type = JsonValue::Type::Bool;
+    root.obj["Enabled"].b = cfg.enabled;
     root.obj["CenterLock"].type = JsonValue::Type::Bool;
     root.obj["CenterLock"].b = cfg.centerLock;
     root.obj["ForegroundBinding"].type = JsonValue::Type::Bool;

@@ -33,6 +33,8 @@ struct AppConfig
     Hotkey jumpRight; // 跳转下一屏幕
     bool startSilent = false;
     bool autoStart = false;
+    bool enabled = false;
+    bool enabledStateConfigured = false;
     bool centerLock = false;
     bool foregroundBinding = false;
     bool hideTrayIcon = false;

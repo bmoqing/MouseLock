@@ -30,7 +30,7 @@ namespace
     std::wstring g_cfgPath;             // 配置文件完整路径
 
     // ========== 锁定状态 ==========
-    bool g_enabled = false;             // 启动时保持未锁定，避免首次配置前鼠标被困在其他屏幕
+    bool g_enabled = false;             // 从配置恢复；首次启动默认为未锁定
     bool g_unlockedByHold = false;      // 是否因长按解锁键而临时解锁
     bool g_bindingMatched = false;      // 前台窗口是否匹配用户绑定
 
@@ -463,6 +463,9 @@ namespace
             return;
         }
         g_enabled = v;
+        g_cfg.enabled = v;
+        if (!SaveConfig(g_cfgPath, g_cfg))
+            LOG_WARN(L"锁定状态保存失败；本次运行状态仍已切换");
         g_unlockedByHold = false;
         LOG_INFO(L"锁定状态: %s", v ? L"启用" : L"禁用");
         if (g_enabled)
@@ -1648,6 +1651,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         else if (migratedLegacyConfig)
         {
             LOG_INFO(L"旧配置已迁移到用户数据目录");
+        }
+        if (g_cfg.enabled && !mouse_lock::CanEnableLock(g_cfg))
+        {
+            LOG_WARN(L"已保存的锁定状态缺少安全退出快捷键，启动时将保持未锁定");
+            g_cfg.enabled = false;
+            g_cfg.enabledStateConfigured = false;
+        }
+        g_enabled = g_cfg.enabled;
+        if (!g_cfg.enabledStateConfigured)
+        {
+            if (SaveConfig(g_cfgPath, g_cfg))
+                g_cfg.enabledStateConfigured = true;
+            else
+                LOG_WARN(L"首次锁定状态初始化失败；退出前状态可能无法保留");
         }
         // 配置保持勾选时也重新校验计划任务，修复任务被系统清理、禁用或旧版本
         // 创建为“仅接通电源启动”的情况。
