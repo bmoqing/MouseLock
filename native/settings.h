@@ -12,12 +12,18 @@ using BindingChangedCallback = std::function<void(const std::vector<HWND>&,
                                                    const std::vector<std::wstring>&,
                                                    const std::vector<std::wstring>&)>;
 
+constexpr int kCustomLockCheckboxX = 16;
+constexpr int kCustomLockCheckboxY = 210;
+constexpr int kCustomLockCheckboxWidth = 220;
+constexpr int kPickLockPositionButtonX = 250;
+
 struct SettingsCallbacks
 {
     std::function<void(AppConfig&)> onChanged;
     BindingChangedCallback onBindingsChanged;
     std::function<void(bool)> onEnabledChanged;
     std::function<void(bool)> onHotkeyCaptureChanged;
+    std::function<void()> onPickLockPosition;
 };
 
 inline bool IsSettingsCheckboxControlId(int id)
@@ -28,6 +34,7 @@ inline bool IsSettingsCheckboxControlId(int id)
     case IDC_CHK_SILENT:
     case IDC_CHK_AUTOSTART:
     case IDC_CHK_CENTER:
+    case IDC_CHK_CUSTOM_LOCK:
     case IDC_CHK_BINDING:
     case IDC_CHK_HIDE_TRAY_ICON:
     case IDC_CHK_SHOW_HIDDEN:

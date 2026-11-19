@@ -18,7 +18,7 @@ namespace
     bool TestCenterLockRequiresAnExitHotkey()
     {
         AppConfig config = EmptyShortcuts();
-        config.centerLock = true;
+        config.lockMode = LockMode::Center;
         return !mouse_lock::CanEnableLock(config);
     }
 
@@ -28,10 +28,22 @@ namespace
         return mouse_lock::CanEnableLock(config);
     }
 
+    bool TestCustomLockPointRequiresAnExitHotkey()
+    {
+        AppConfig config = EmptyShortcuts();
+        config.lockMode = LockMode::Custom;
+        if (mouse_lock::CanEnableLock(config))
+            return false;
+
+        config.toggleLock.modifiers = { Modifier::Control, Modifier::Alt };
+        config.toggleLock.key = 'L';
+        return mouse_lock::CanEnableLock(config);
+    }
+
     bool TestEitherUnlockOrToggleHotkeyIsEnough()
     {
         AppConfig config = EmptyShortcuts();
-        config.centerLock = true;
+        config.lockMode = LockMode::Center;
         config.unlock.modifiers = { Modifier::Control };
         config.unlock.key = 0;
         if (!mouse_lock::CanEnableLock(config))
@@ -47,7 +59,7 @@ namespace
     bool TestJumpHotkeysDoNotCountAsAnExitHotkey()
     {
         AppConfig config = EmptyShortcuts();
-        config.centerLock = true;
+        config.lockMode = LockMode::Center;
         config.jumpLeft.modifiers = { Modifier::Control, Modifier::Alt };
         config.jumpLeft.key = 0x25;
         config.jumpRight.modifiers = { Modifier::Control, Modifier::Alt };
@@ -58,7 +70,7 @@ namespace
     bool TestModifierlessEmptyHotkeyDoesNotCountAsConfigured()
     {
         AppConfig config = EmptyShortcuts();
-        config.centerLock = true;
+        config.lockMode = LockMode::Center;
         config.unlock.key = 0;
         return !mouse_lock::CanEnableLock(config);
     }
@@ -66,7 +78,7 @@ namespace
     bool TestModifierOnlyToggleHotkeyDoesNotCountAsConfigured()
     {
         AppConfig config = EmptyShortcuts();
-        config.centerLock = true;
+        config.lockMode = LockMode::Center;
         config.toggleLock.modifiers = { Modifier::Control };
         config.toggleLock.key = 0;
         return !mouse_lock::CanEnableLock(config);
@@ -75,7 +87,7 @@ namespace
     bool TestInvalidNegativeHotkeyDoesNotCountAsConfigured()
     {
         AppConfig config = EmptyShortcuts();
-        config.centerLock = true;
+        config.lockMode = LockMode::Center;
         config.unlock.modifiers = { Modifier::Control };
         config.unlock.key = -2;
         return !mouse_lock::CanEnableLock(config);
@@ -119,6 +131,7 @@ int main()
 {
     if (!TestCenterLockRequiresAnExitHotkey() ||
         !TestNonCenterLockDoesNotRequireAnExitHotkey() ||
+        !TestCustomLockPointRequiresAnExitHotkey() ||
         !TestEitherUnlockOrToggleHotkeyIsEnough() ||
         !TestJumpHotkeysDoNotCountAsAnExitHotkey() ||
         !TestModifierlessEmptyHotkeyDoesNotCountAsConfigured() ||

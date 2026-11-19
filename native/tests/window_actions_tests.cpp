@@ -5,6 +5,14 @@
 
 int wmain()
 {
+    if (kCustomLockCheckboxX + kCustomLockCheckboxWidth >
+        kPickLockPositionButtonX)
+    {
+        std::fprintf(stderr,
+            "FAIL: custom-lock checkbox must not cover the position picker button\n");
+        return 1;
+    }
+
     if (!IsSettingsCheckboxControlId(IDC_CHK_ENABLED) ||
         !IsSettingsCheckboxControlId(IDC_CHK_CENTER) ||
         !IsSettingsCheckboxControlId(IDC_CHK_SHOW_HIDDEN) ||
@@ -16,7 +24,8 @@ int wmain()
     }
 
     if (mouse_lock::ShouldHandleGlobalHotkeys(true) ||
-        !mouse_lock::ShouldHandleGlobalHotkeys(false))
+        !mouse_lock::ShouldHandleGlobalHotkeys(false) ||
+        mouse_lock::ShouldHandleGlobalHotkeys(false, true))
     {
         std::fprintf(stderr,
             "FAIL: global hotkeys must be suppressed during shortcut capture\n");

@@ -16,7 +16,7 @@
 ## Features
 
 - **Smart locking**: Keeps the mouse cursor inside the current monitor.
-- **Center locking**: Optionally locks the cursor to the geometric center of the current monitor, calculated from each monitor's actual resolution.
+- **Fixed-point locking**: Lock to the current monitor's center or pick a custom point with a full-screen crosshair. Custom positions are saved proportionally and mapped to other monitors.
 - **Foreground application binding**: Select applications from a unified list. The list is deduplicated by executable path; when a bound application is in the foreground, the cursor is locked to the monitor containing that application.
 - **Hotkey controls**: Toggle locking with a shortcut, or hold a separate shortcut to unlock temporarily until it is released.
 - **Quick switching**: Jump to the previous or next monitor with one shortcut. The lock moves to the destination monitor, and keyboard shortcuts support mouse buttons 4 and 5.
@@ -44,7 +44,7 @@ Mouse locking is off by default when the program starts. All four hotkeys can be
 4. When the tray icon is visible, right-click it to enable or disable locking, switch monitors, open the Settings window, or exit. **Binding Settings** and **Settings** both open the same window.
 5. Configure the following options in Settings:
    - The four hotkeys.
-   - Lock the mouse to the center of the current monitor.
+   - Choose a lock mode: monitor bounds, center, or custom position. Click **Choose position** and click a target point; press `Esc` to cancel.
    - Lock only when a selected foreground application is active. Select multiple applications from the binding list. Window and process bindings use the application path as a single identity, so all windows of the application are covered.
    - Search the application list. By default, only applications with visible windows are shown; enable **Show background applications without visible windows** to find background processes, then use **Bind selected items** to apply the selection.
    - Start silently in the system tray.
@@ -67,7 +67,7 @@ The generated `native\MouseLock.exe` is a standalone executable. The application
 ## Technical Details
 
 - **Mouse locking**: `ClipCursor` limits the cursor area. `SetWinEventHook` observes focus and desktop changes, while a timer restores the clipping region when needed.
-- **Center locking**: Uses the center of the current monitor and restricts the cursor to a 1 x 1 pixel area. The center is recalculated when switching monitors.
+- **Fixed-point locking**: Center and custom modes restrict the cursor to a 1 x 1 pixel area. Custom coordinates are stored as monitor-relative proportions and mapped to the same proportional position when switching monitors.
 - **Foreground binding**: Uses `EVENT_SYSTEM_FOREGROUND` to track the foreground window, matches selected applications by executable path, and uses `MonitorFromWindow` to identify the monitor. The old clipping region is released when a bound window starts moving and reapplied when the move ends.
 - **Hotkeys**: Low-level keyboard and mouse hooks (`WH_KEYBOARD_LL` and `WH_MOUSE_LL`) capture keyboard and mouse button 4/5 combinations. Temporary unlock uses a hold-to-unlock behavior.
 - **Monitor switching**: `EnumDisplayMonitors` enumerates monitors and sorts them by physical coordinates. `SetCursorPos` moves the cursor to the center of the destination monitor.
@@ -83,6 +83,7 @@ MouseLock/
 └── native/               # C++/Win32 source
     ├── main.cpp          # Entry point, tray icon, hooks, main window
     ├── locker.cpp/h      # Core mouse locking logic
+    ├── lock_position_picker.cpp/h # Full-screen custom position picker
     ├── settings.cpp/h    # Settings window
     ├── config.cpp/h      # JSON configuration and hotkey formatting
     ├── resources.rc      # Resource script (icon and application manifest)

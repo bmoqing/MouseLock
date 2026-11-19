@@ -60,6 +60,9 @@ namespace
         HWND chkSilent = nullptr;
         HWND chkAutoStart = nullptr;
         HWND chkCenter = nullptr;
+        HWND chkCustomLock = nullptr;
+        HWND pickLockPosition = nullptr;
+        HWND lockPositionLabel = nullptr;
         HWND chkBinding = nullptr;
         HWND chkHideTrayIcon = nullptr;
         HWND applicationList = nullptr;
@@ -89,6 +92,7 @@ namespace
         std::function<void(AppConfig&)> onChanged;
         std::function<void(bool)> onEnabledChanged;
         std::function<void(bool)> onHotkeyCaptureChanged;
+        std::function<void()> onPickLockPosition;
     };
 
     SettingsCtx* g_ctx = nullptr;
@@ -578,7 +582,21 @@ namespace
         SendMessageW(g_ctx->chkAutoStart, BM_SETCHECK,
             g_ctx->cfg.autoStart ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_ctx->chkCenter, BM_SETCHECK,
-            g_ctx->cfg.centerLock ? BST_CHECKED : BST_UNCHECKED, 0);
+            g_ctx->cfg.lockMode == LockMode::Center ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_ctx->chkCustomLock, BM_SETCHECK,
+            g_ctx->cfg.lockMode == LockMode::Custom ? BST_CHECKED : BST_UNCHECKED, 0);
+        auto formatPercent = [](int value) {
+            value = ClampLockPosition(value);
+            std::wstring result = std::to_wstring(value / 100) + L".";
+            if (value % 100 < 10)
+                result += L"0";
+            result += std::to_wstring(value % 100) + L"%";
+            return result;
+        };
+        const std::wstring positionText = L"位置：" +
+            formatPercent(g_ctx->cfg.lockPoint.x) + L"，" +
+            formatPercent(g_ctx->cfg.lockPoint.y);
+        SetWindowTextW(g_ctx->lockPositionLabel, positionText.c_str());
         SendMessageW(g_ctx->chkBinding, BM_SETCHECK,
             g_ctx->cfg.foregroundBinding ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_ctx->chkHideTrayIcon, BM_SETCHECK,
@@ -715,11 +733,12 @@ namespace
         return b;
     }
 
-    HWND CreateCheck(HWND parent, const wchar_t* text, int x, int y, int id)
+    HWND CreateCheck(HWND parent, const wchar_t* text, int x, int y, int id,
+                     int width = 400)
     {
         HWND c = CreateWindowExW(0, L"BUTTON", text,
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-            x, y, 400, 18, parent, (HMENU)(INT_PTR)id, nullptr, nullptr);
+            x, y, width, 18, parent, (HMENU)(INT_PTR)id, nullptr, nullptr);
         SendMessageW(c, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
         return c;
     }
@@ -765,7 +784,7 @@ namespace
         int rightWidth = width - leftWidth - 16;
 
         // Keep the hidden-entry checkbox and action buttons outside both lists.
-        const int listTop = 397;
+        const int listTop = 425;
         const int labelHeight = 16;
         const int labelSearchGap = 4;
         const int searchHeight = 23;
@@ -778,12 +797,12 @@ namespace
         int buttonTop = client.bottom - bottomMargin - buttonHeight;
         int hiddenTop = buttonTop - buttonGap - hiddenHeight;
         int listBottom = hiddenTop - hiddenGap;
-        MoveWindow(g_ctx->applicationLabel, 16, 350, leftWidth, labelHeight, TRUE);
-        MoveWindow(g_ctx->applicationSearch, 16, 370, leftWidth, searchHeight, TRUE);
+        MoveWindow(g_ctx->applicationLabel, 16, 378, leftWidth, labelHeight, TRUE);
+        MoveWindow(g_ctx->applicationSearch, 16, 398, leftWidth, searchHeight, TRUE);
         MoveWindow(g_ctx->applicationList, 16, listTop, leftWidth, listBottom - listTop, TRUE);
         ListView_SetColumnWidth(g_ctx->applicationList, 0, (std::max)(0, leftWidth - 4));
-        MoveWindow(g_ctx->bindingLabel, rightX, 350, rightWidth, labelHeight, TRUE);
-        MoveWindow(g_ctx->bindingList, rightX, 370, rightWidth, listBottom - 370, TRUE);
+        MoveWindow(g_ctx->bindingLabel, rightX, 378, rightWidth, labelHeight, TRUE);
+        MoveWindow(g_ctx->bindingList, rightX, 398, rightWidth, listBottom - 398, TRUE);
         ListView_SetColumnWidth(g_ctx->bindingList, 0, (std::max)(0, rightWidth - 4));
         MoveWindow(g_ctx->showHidden, 16, hiddenTop, width, hiddenHeight, TRUE);
         MoveWindow(g_ctx->refreshBindings, 16, buttonTop, 100, buttonHeight, TRUE);
@@ -848,6 +867,7 @@ void CreateSettingsControls(HWND parent, const AppConfig& current, bool enabled,
     g_ctx->onBindingsChanged = callbacks.onBindingsChanged;
     g_ctx->onEnabledChanged = callbacks.onEnabledChanged;
     g_ctx->onHotkeyCaptureChanged = callbacks.onHotkeyCaptureChanged;
+    g_ctx->onPickLockPosition = callbacks.onPickLockPosition;
 
     CreateLabel(parent, L"临时解锁键（长按）：", 16, 22, false);
     CreateLabel(parent, L"跳转到上一屏幕：", 16, 58, false);
@@ -872,26 +892,33 @@ void CreateSettingsControls(HWND parent, const AppConfig& current, bool enabled,
     g_ctx->chkEnabled = CreateCheck(parent, L"启用鼠标锁定", 520, 18, IDC_CHK_ENABLED);
     SendMessageW(g_ctx->chkEnabled, BM_SETCHECK, enabled ? BST_CHECKED : BST_UNCHECKED, 0);
     g_ctx->chkCenter = CreateCheck(parent, L"将鼠标锁定到当前屏幕正中间", 16, 182, IDC_CHK_CENTER);
-    g_ctx->chkBinding = CreateCheck(parent, L"仅当前绑定窗口或进程在前台时锁定", 16, 210, IDC_CHK_BINDING);
-    CreateLabel(parent, L"启动选项", 16, 238, true);
-    g_ctx->chkSilent = CreateCheck(parent, L"启动时静默启动到托盘（不显示主窗口）", 16, 262, IDC_CHK_SILENT);
-    g_ctx->chkAutoStart = CreateCheck(parent, L"开机自动启动", 16, 290, IDC_CHK_AUTOSTART);
+    g_ctx->chkCustomLock = CreateCheck(parent, L"将鼠标锁定到自定义位置",
+        kCustomLockCheckboxX, kCustomLockCheckboxY, IDC_CHK_CUSTOM_LOCK,
+        kCustomLockCheckboxWidth);
+    g_ctx->pickLockPosition = CreateButton(parent, L"选择位置...",
+        kPickLockPositionButtonX, 206, 100, 24,
+        IDC_BTN_PICK_LOCK_POSITION);
+    g_ctx->lockPositionLabel = CreateLabel(parent, L"位置：50.00%，50.00%", 362, 210, false);
+    g_ctx->chkBinding = CreateCheck(parent, L"仅当前绑定窗口或进程在前台时锁定", 16, 238, IDC_CHK_BINDING);
+    CreateLabel(parent, L"启动选项", 16, 266, true);
+    g_ctx->chkSilent = CreateCheck(parent, L"启动时静默启动到托盘（不显示主窗口）", 16, 290, IDC_CHK_SILENT);
+    g_ctx->chkAutoStart = CreateCheck(parent, L"开机自动启动", 16, 318, IDC_CHK_AUTOSTART);
     g_ctx->chkHideTrayIcon = CreateCheck(parent,
-        L"隐藏系统托盘图标（再次运行程序可打开设置）", 16, 318, IDC_CHK_HIDE_TRAY_ICON);
+        L"隐藏系统托盘图标（再次运行程序可打开设置）", 16, 346, IDC_CHK_HIDE_TRAY_ICON);
 
-    g_ctx->applicationLabel = CreateLabel(parent, L"绑定应用（窗口和进程统一）", 16, 350, true);
+    g_ctx->applicationLabel = CreateLabel(parent, L"绑定应用（窗口和进程统一）", 16, 378, true);
     g_ctx->applicationSearch = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 370, 360, 23, parent,
+        WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 16, 398, 360, 23, parent,
         (HMENU)(INT_PTR)IDC_EDIT_WINDOW_SEARCH, nullptr, nullptr);
     g_ctx->applicationList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
             LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-        16, 397, 360, 120, parent, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
-    g_ctx->bindingLabel = CreateLabel(parent, L"当前已绑定", 392, 350, true);
+        16, 425, 360, 120, parent, (HMENU)(INT_PTR)IDC_LIST_BIND_WINDOWS, nullptr, nullptr);
+    g_ctx->bindingLabel = CreateLabel(parent, L"当前已绑定", 392, 378, true);
     g_ctx->bindingList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA |
             LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
-        392, 370, 360, 322, parent, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
+        392, 398, 360, 322, parent, (HMENU)(INT_PTR)IDC_LIST_CURRENT_BINDINGS, nullptr, nullptr);
     ConfigureVirtualList(g_ctx->applicationList);
     ConfigureVirtualList(g_ctx->bindingList);
     g_ctx->showHidden = CreateCheck(parent, L"显示无可见窗口的后台应用", 16, 654, IDC_CHK_SHOW_HIDDEN);
@@ -982,7 +1009,20 @@ bool HandleSettingsMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& r
         case IDC_JUMPRIGHT_CLEAR: ClearGood(g_ctx->jumpRightEdit, g_ctx->cfg.jumpRight); break;
         case IDC_CHK_SILENT: g_ctx->cfg.startSilent = SendMessageW(g_ctx->chkSilent, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
         case IDC_CHK_AUTOSTART: g_ctx->cfg.autoStart = SendMessageW(g_ctx->chkAutoStart, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
-        case IDC_CHK_CENTER: g_ctx->cfg.centerLock = SendMessageW(g_ctx->chkCenter, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
+        case IDC_CHK_CENTER:
+            g_ctx->cfg.lockMode = SendMessageW(g_ctx->chkCenter, BM_GETCHECK, 0, 0) == BST_CHECKED
+                ? LockMode::Center : LockMode::ScreenBounds;
+            Commit();
+            break;
+        case IDC_CHK_CUSTOM_LOCK:
+            g_ctx->cfg.lockMode = SendMessageW(g_ctx->chkCustomLock, BM_GETCHECK, 0, 0) == BST_CHECKED
+                ? LockMode::Custom : LockMode::ScreenBounds;
+            Commit();
+            break;
+        case IDC_BTN_PICK_LOCK_POSITION:
+            if (g_ctx->onPickLockPosition)
+                g_ctx->onPickLockPosition();
+            break;
         case IDC_CHK_BINDING: g_ctx->cfg.foregroundBinding = SendMessageW(g_ctx->chkBinding, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
         case IDC_CHK_HIDE_TRAY_ICON: g_ctx->cfg.hideTrayIcon = SendMessageW(g_ctx->chkHideTrayIcon, BM_GETCHECK, 0, 0) == BST_CHECKED; Commit(); break;
         case IDC_BTN_REFRESH_BINDINGS: RefreshBindingLists(); break;

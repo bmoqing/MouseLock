@@ -21,9 +21,10 @@ namespace mouse_lock
         return result;
     }
 
-    inline bool ShouldHandleGlobalHotkeys(bool hotkeyCaptureActive)
+    inline bool ShouldHandleGlobalHotkeys(bool hotkeyCaptureActive,
+                                          bool lockPositionPickerActive = false)
     {
-        return !hotkeyCaptureActive;
+        return !hotkeyCaptureActive && !lockPositionPickerActive;
     }
 
     inline bool ShouldHideMainWindowOnClose(bool trayIconHidden)

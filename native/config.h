@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include "lock_position.h"
 
 // 修饰键（与旧 C# 版 HoldModifier 的字符串枚举保持一致）
 enum class Modifier
@@ -35,13 +36,23 @@ struct AppConfig
     bool autoStart = false;
     bool enabled = false;
     bool enabledStateConfigured = false;
-    bool centerLock = false;
+    LockMode lockMode = LockMode::ScreenBounds;
+    NormalizedLockPoint lockPoint;
     bool foregroundBinding = false;
     bool hideTrayIcon = false;
     // 统一保存应用程序可执行文件路径；boundProcessPaths 仅为旧配置兼容保留。
     std::vector<std::wstring> boundWindowPaths;
     std::vector<std::wstring> boundProcessPaths;
 };
+
+inline AppConfig WithPickedLockPosition(const AppConfig& current,
+                                        const RECT& monitorBounds,
+                                        POINT pickedPosition)
+{
+    AppConfig updated = current;
+    updated.lockPoint = NormalizeLockPoint(monitorBounds, pickedPosition);
+    return updated;
+}
 
 // 从 JSON 文本加载配置；失败或缺失时回退默认值。
 AppConfig LoadConfig(const std::wstring& path);

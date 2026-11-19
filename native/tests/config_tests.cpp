@@ -137,13 +137,52 @@ namespace
         DeleteFileW((path + L".tmp").c_str());
         return success;
     }
+
+    bool TestCustomLockPositionRoundTrips()
+    {
+        const std::wstring path = TestConfigPath();
+        if (path.empty())
+            return false;
+
+        AppConfig config;
+        config.lockMode = LockMode::Custom;
+        config.lockPoint.x = 2750;
+        config.lockPoint.y = 7300;
+        bool success = SaveConfig(path, config);
+        if (success)
+        {
+            config = LoadConfig(path);
+            success = config.lockMode == LockMode::Custom &&
+                config.lockPoint.x == 2750 && config.lockPoint.y == 7300;
+        }
+
+        DeleteFileW(path.c_str());
+        DeleteFileW((path + L".tmp").c_str());
+        return success;
+    }
+
+    bool TestLegacyCenterLockConfigRemainsCompatible()
+    {
+        const std::wstring path = TestConfigPath();
+        if (path.empty())
+            return false;
+
+        bool success = false;
+        if (WriteText(path, "{\"CenterLock\":true}"))
+            success = LoadConfig(path).lockMode == LockMode::Center;
+        DeleteFileW(path.c_str());
+        DeleteFileW((path + L".tmp").c_str());
+        return success;
+    }
 }
 
 int wmain()
 {
     if (!TestHiddenTrayPreferenceRoundTrips() ||
         !TestLockStateDefaultsUnlockedWhenMissing() ||
-        !TestLockStateRoundTrips())
+        !TestLockStateRoundTrips() ||
+        !TestCustomLockPositionRoundTrips() ||
+        !TestLegacyCenterLockConfigRemainsCompatible())
     {
         std::fprintf(stderr,
             "FAIL: configuration preferences must round-trip and have safe defaults\n");

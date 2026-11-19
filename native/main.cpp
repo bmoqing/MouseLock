@@ -20,6 +20,7 @@
 #include "constants.h"
 #include "error_helpers.h"
 #include "window_actions.h"
+#include "lock_position_picker.h"
 
 // ---------------- 全局应用状态 ----------------
 namespace
@@ -33,6 +34,8 @@ namespace
     bool g_enabled = false;             // 从配置恢复；首次启动默认为未锁定
     bool g_unlockedByHold = false;      // 是否因长按解锁键而临时解锁
     bool g_bindingMatched = false;      // 前台窗口是否匹配用户绑定
+    std::atomic_bool g_lockPositionPickerActive{ false };
+    LockPositionPicker g_lockPositionPicker;
 
     // ========== 键盘状态（由钩子维护） ==========
     bool g_lctrl = false, g_rctrl = false;
@@ -87,6 +90,7 @@ namespace
     constexpr UINT kMsgMouseRevalidate = WM_APP + 4;
     constexpr UINT kMsgToggleLock = WM_APP + 5;
     constexpr UINT kMsgRestoreMain = WM_APP + 6;
+    constexpr UINT kMsgBeginLockPositionPick = WM_APP + 7;
     std::atomic_bool g_mouseRevalidatePosted{ false };
     std::atomic_long g_lastMouseX{ 0 };
     std::atomic_long g_lastMouseY{ 0 };
@@ -189,6 +193,92 @@ namespace
 
     void ApplyForegroundBinding(HWND hwnd);
     void RequestForegroundRefresh();
+    void SyncUi();
+
+    bool LockToCurrentConfiguredScreen()
+    {
+        if (g_lockPositionPickerActive.load(std::memory_order_acquire))
+            return false;
+        return g_locker.LockToCurrentScreen(g_cfg.lockMode, g_cfg.lockPoint);
+    }
+
+    bool LockToConfiguredScreenAt(int x, int y)
+    {
+        if (g_lockPositionPickerActive.load(std::memory_order_acquire))
+            return false;
+        return g_locker.LockToScreenAt(x, y, g_cfg.lockMode, g_cfg.lockPoint);
+    }
+
+    void RestoreConfiguredLock()
+    {
+        if (!g_enabled || g_unlockedByHold ||
+            g_lockPositionPickerActive.load(std::memory_order_acquire))
+            return;
+        if (g_cfg.foregroundBinding)
+            RequestForegroundRefresh();
+        else
+            LockToCurrentConfiguredScreen();
+    }
+
+    void FinishLockPositionPick(bool selected, POINT point)
+    {
+        g_lockPositionPickerActive.store(false, std::memory_order_release);
+        if (selected)
+        {
+            HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO monitorInfo{};
+            monitorInfo.cbSize = sizeof(monitorInfo);
+            if (monitor && GetMonitorInfoW(monitor, &monitorInfo))
+            {
+                AppConfig updated = WithPickedLockPosition(
+                    g_cfg, monitorInfo.rcMonitor, point);
+                if (SaveConfig(g_cfgPath, updated))
+                {
+                    g_cfg = updated;
+                    LOG_INFO(L"自定义锁定位置已设置：横向 %d/10000，纵向 %d/10000",
+                        g_cfg.lockPoint.x, g_cfg.lockPoint.y);
+                }
+                else
+                {
+                    MessageBoxW(g_hwnd, L"自定义位置保存失败，请检查文件权限或磁盘空间。",
+                        L"MouseLock - 设置失败", MB_OK | MB_ICONWARNING);
+                }
+            }
+            else
+            {
+                LOG_WARN(L"无法读取所选显示器信息，未更新自定义锁定位置");
+            }
+        }
+
+        if (!g_quitting)
+        {
+            RestoreConfiguredLock();
+            SyncUi();
+        }
+    }
+
+    void BeginLockPositionPick()
+    {
+        if (g_lockPositionPickerActive.exchange(true, std::memory_order_acq_rel))
+            return;
+
+        if (g_locker.IsLocked() && !g_locker.Unlock())
+        {
+            g_lockPositionPickerActive.store(false, std::memory_order_release);
+            MessageBoxW(g_hwnd, L"暂时解除鼠标锁定失败，无法选择位置。",
+                L"MouseLock - 选择位置", MB_OK | MB_ICONWARNING);
+            return;
+        }
+
+        if (!g_lockPositionPicker.Start(g_hwnd, g_inst,
+                FinishLockPositionPick))
+        {
+            g_lockPositionPickerActive.store(false, std::memory_order_release);
+            RestoreConfiguredLock();
+            MessageBoxW(g_hwnd, L"无法打开全屏位置选择界面。",
+                L"MouseLock - 选择位置", MB_OK | MB_ICONWARNING);
+        }
+    }
 
     void ApplyUnlockState(bool active)
     {
@@ -218,13 +308,15 @@ namespace
                 if (g_cfg.foregroundBinding)
                     RequestForegroundRefresh();
                 else
-                    g_locker.LockToCurrentScreen(g_cfg.centerLock);
+                    LockToCurrentConfiguredScreen();
             }
         }
     }
 
     void ReconcileUnlockState()
     {
+        if (g_lockPositionPickerActive.load(std::memory_order_acquire))
+            return;
         bool active = IsSet(g_cfg.unlock) && HotkeyPhysicallyDown(g_cfg.unlock);
         ApplyUnlockState(active);
     }
@@ -288,12 +380,13 @@ namespace
 
     void ApplyForegroundBinding(HWND hwnd)
     {
-        if (!g_enabled || g_unlockedByHold)
+        if (!g_enabled || g_unlockedByHold ||
+            g_lockPositionPickerActive.load(std::memory_order_acquire))
             return;
         if (!g_cfg.foregroundBinding)
         {
             g_bindingMatched = false;
-            g_locker.LockToCurrentScreen(g_cfg.centerLock);
+            LockToCurrentConfiguredScreen();
             return;
         }
         if (g_cfg.boundWindowPaths.empty() && g_cfg.boundProcessPaths.empty() &&
@@ -370,7 +463,7 @@ namespace
             monitorInfo.rcMonitor.top +
                 (monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top) / 2
         };
-        if (!g_locker.LockToScreenAt(center.x, center.y, g_cfg.centerLock))
+        if (!LockToConfiguredScreenAt(center.x, center.y))
         {
             g_bindingMatched = false;
             LOG_WARN(L"锁定失败: 无法锁定到绑定窗口所在屏幕");
@@ -380,6 +473,8 @@ namespace
 
     void ReconcileForegroundWindow()
     {
+        if (g_lockPositionPickerActive.load(std::memory_order_acquire))
+            return;
         if (g_moveSizeInProgress && g_moveSizeWindow && !IsWindow(g_moveSizeWindow))
         {
             g_moveSizeInProgress = false;
@@ -443,21 +538,22 @@ namespace
     {
         // 前台绑定模式只能由 ReconcileForegroundWindow 使用稳定的当前前台窗口重锁，
         // 这里不能回退到可能已经失焦或销毁的 g_lastForegroundWindow。
-        if (g_enabled && !g_unlockedByHold && !g_cfg.foregroundBinding &&
+        if (!g_lockPositionPickerActive.load(std::memory_order_acquire) &&
+            g_enabled && !g_unlockedByHold && !g_cfg.foregroundBinding &&
             !g_locker.IsLocked())
-            g_locker.LockToCurrentScreen(g_cfg.centerLock);
+            LockToCurrentConfiguredScreen();
     }
-
-    void SyncUi();
 
     void SetEnabled(bool v)
     {
+        if (g_lockPositionPickerActive.load(std::memory_order_acquire))
+            return;
         if (g_enabled == v)
             return;
         if (v && !mouse_lock::CanEnableLock(g_cfg))
         {
             MessageBoxW(g_hwnd,
-                L"中心锁定会将鼠标固定在屏幕正中间。请先设置“临时解锁键”或“启用/停用锁定”快捷键，再启用鼠标锁定。",
+                L"固定点锁定会将鼠标限制在一个位置。请先设置“临时解锁键”或“启用/停用锁定”快捷键，再启用鼠标锁定。",
                 L"MouseLock - 安全提示", MB_OK | MB_ICONWARNING);
             SyncUi();
             return;
@@ -473,7 +569,7 @@ namespace
             if (g_cfg.foregroundBinding)
                 RequestForegroundRefresh();
             else
-                g_locker.LockToCurrentScreen(g_cfg.centerLock);
+                LockToCurrentConfiguredScreen();
         }
         else
             g_locker.Unlock();
@@ -594,7 +690,8 @@ namespace
             RequestUnlockSync();
 
             if (mouse_lock::ShouldHandleGlobalHotkeys(
-                    g_hotkeyCaptureActive.load(std::memory_order_acquire)))
+                    g_hotkeyCaptureActive.load(std::memory_order_acquire),
+                    g_lockPositionPickerActive.load(std::memory_order_acquire)))
             {
                 if (isDown && firstDown &&
                     TryMatch(g_cfg.toggleLock, k->vkCode))
@@ -661,7 +758,8 @@ namespace
             g_lastMousePositionValid.store(true, std::memory_order_release);
             // WM_MOUSEMOVE 不一定能在主线程每个定时周期内及时采样到。
             // 将校验请求合并投递，快速甩动时也能尽快恢复 ClipCursor。
-            if (wp == WM_MOUSEMOVE)
+            if (wp == WM_MOUSEMOVE &&
+                !g_lockPositionPickerActive.load(std::memory_order_acquire))
                 RequestMouseRevalidate();
 
             int button = MouseButtonVkFromHook(wp, *mouse);
@@ -677,7 +775,8 @@ namespace
 
                     if (firstDown && g_enabled &&
                         mouse_lock::ShouldHandleGlobalHotkeys(
-                            g_hotkeyCaptureActive.load(std::memory_order_acquire)))
+                            g_hotkeyCaptureActive.load(std::memory_order_acquire),
+                            g_lockPositionPickerActive.load(std::memory_order_acquire)))
                     {
                         int direction = 0;
                         if (TryMatch(g_cfg.jumpLeft, (UINT)button))
@@ -1332,8 +1431,14 @@ namespace
         switch (id)
         {
         case ID_TRAY_TOGGLE: SetEnabled(!g_enabled); break;
-        case ID_TRAY_JUMPPREV: if (g_enabled) g_locker.Jump(-1); break;
-        case ID_TRAY_JUMPNEXT: if (g_enabled) g_locker.Jump(1); break;
+        case ID_TRAY_JUMPPREV:
+            if (g_enabled && !g_lockPositionPickerActive.load(std::memory_order_acquire))
+                g_locker.Jump(-1, g_cfg.lockMode, g_cfg.lockPoint);
+            break;
+        case ID_TRAY_JUMPNEXT:
+            if (g_enabled && !g_lockPositionPickerActive.load(std::memory_order_acquire))
+                g_locker.Jump(1, g_cfg.lockMode, g_cfg.lockPoint);
+            break;
         case ID_TRAY_BIND_TOGGLE:
             g_cfg.foregroundBinding = !g_cfg.foregroundBinding;
             LOG_INFO(L"前台绑定: %s", g_cfg.foregroundBinding ? L"开启" : L"关闭");
@@ -1344,7 +1449,7 @@ namespace
             if (g_cfg.foregroundBinding)
                 RequestForegroundRefresh();
             else
-                g_locker.LockToCurrentScreen(g_cfg.centerLock);
+                LockToCurrentConfiguredScreen();
             break;
         case ID_TRAY_BIND_SETTINGS:
         case ID_TRAY_SETTINGS:
@@ -1359,6 +1464,8 @@ namespace
 
     void ExitApplication()
     {
+        g_quitting = true;
+        g_lockPositionPicker.Cancel();
         LOG_INFO(L"MouseLock 退出");
         UninstallHooks();
         g_locker.Unlock();
@@ -1423,16 +1530,22 @@ namespace
         case kMsgJump:
         {
             int direction = static_cast<int>(wp);
-            if (g_enabled && (direction == -1 || direction == 1))
+            if (g_enabled && !g_lockPositionPickerActive.load(std::memory_order_acquire) &&
+                (direction == -1 || direction == 1))
             {
                 LOG_INFO(L"快捷键: 跳转到%s屏", direction < 0 ? L"左" : L"右");
-                g_locker.Jump(direction);
+                g_locker.Jump(direction, g_cfg.lockMode, g_cfg.lockPoint);
             }
             return 0;
         }
 
+        case kMsgBeginLockPositionPick:
+            BeginLockPositionPick();
+            return 0;
+
         case kMsgToggleLock:
-            SetEnabled(!g_enabled);
+            if (!g_lockPositionPickerActive.load(std::memory_order_acquire))
+                SetEnabled(!g_enabled);
             return 0;
 
         case kMsgRestoreMain:
@@ -1448,7 +1561,8 @@ namespace
         {
             const unsigned int sequenceAtStart =
                 g_mousePositionSequence.load(std::memory_order_acquire);
-            if (g_enabled && !g_unlockedByHold)
+            if (g_enabled && !g_unlockedByHold &&
+                !g_lockPositionPickerActive.load(std::memory_order_acquire))
             {
                 POINT observed{};
                 const POINT* observedPtr = nullptr;
@@ -1464,7 +1578,8 @@ namespace
             // If the hook recorded another move while this message was being
             // handled, schedule one more pass so the newest coordinate is not
             // left waiting for the 25ms backup timer.
-            if (g_mousePositionSequence.load(std::memory_order_acquire) != sequenceAtStart)
+            if (!g_lockPositionPickerActive.load(std::memory_order_acquire) &&
+                g_mousePositionSequence.load(std::memory_order_acquire) != sequenceAtStart)
                 RequestMouseRevalidate();
             return 0;
         }
@@ -1482,10 +1597,13 @@ namespace
         {
             if (wp == kTimerBackup)
             {
-                ReconcileForegroundWindow();
-                g_locker.Revalidate(false);
-                ReconcileUnlockState();
-                ReassertLock();
+                if (!g_lockPositionPickerActive.load(std::memory_order_acquire))
+                {
+                    ReconcileForegroundWindow();
+                    g_locker.Revalidate(false);
+                    ReconcileUnlockState();
+                    ReassertLock();
+                }
                 // Explorer 尚未就绪时重试添加；隐藏偏好则保持移除状态。
                 ApplyTrayIconPreference(false);
             }
@@ -1654,7 +1772,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         }
         if (g_cfg.enabled && !mouse_lock::CanEnableLock(g_cfg))
         {
-            LOG_WARN(L"已保存的锁定状态缺少安全退出快捷键，启动时将保持未锁定");
+            LOG_WARN(L"已保存的固定点锁定状态缺少安全退出快捷键，启动时将保持未锁定");
             g_cfg.enabled = false;
             g_cfg.enabledStateConfigured = false;
         }
@@ -1682,13 +1800,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         if (g_enabled && !mouse_lock::CanEnableLock(cfg))
         {
             MessageBoxW(g_hwnd,
-                L"中心锁定状态下至少需要保留“临时解锁键”或“启用/停用锁定”快捷键，否则无法退出锁定。",
+                L"固定点锁定状态下至少需要保留“临时解锁键”或“启用/停用锁定”快捷键，否则无法退出锁定。",
                 L"MouseLock - 安全提示", MB_OK | MB_ICONWARNING);
             cfg = oldCfg;
             return;
         }
 
-        const bool centerLockChanged = cfg.centerLock != oldCfg.centerLock;
+        const bool lockPositionChanged = cfg.lockMode != oldCfg.lockMode ||
+            cfg.lockPoint.x != oldCfg.lockPoint.x ||
+            cfg.lockPoint.y != oldCfg.lockPoint.y;
         const bool foregroundBindingChanged =
             cfg.foregroundBinding != oldCfg.foregroundBinding;
         const bool hideTrayIconChanged = cfg.hideTrayIcon != oldCfg.hideTrayIcon;
@@ -1717,13 +1837,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
 
         if (hideTrayIconChanged)
             ApplyTrayIconPreference(true);
-        if ((centerLockChanged || foregroundBindingChanged) &&
+        if ((lockPositionChanged || foregroundBindingChanged) &&
             g_enabled && !g_unlockedByHold)
         {
             if (g_cfg.foregroundBinding)
                 RequestForegroundRefresh();
             else
-                g_locker.LockToCurrentScreen(g_cfg.centerLock);
+                LockToCurrentConfiguredScreen();
         }
         SyncUi();
     };
@@ -1748,6 +1868,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     };
     g_settingsCallbacks.onHotkeyCaptureChanged = [](bool active) {
         g_hotkeyCaptureActive.store(active, std::memory_order_release);
+    };
+    g_settingsCallbacks.onPickLockPosition = []() {
+        if (!PostMessageW(g_hwnd, kMsgBeginLockPositionPick, 0, 0))
+            LOG_WARN(L"无法启动自定义锁定位置选择 (错误码 %d)", GetLastError());
     };
 
     g_icon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_MOUSELOCK),

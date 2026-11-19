@@ -17,7 +17,7 @@ namespace mouse_lock
 
     inline bool CanEnableLock(const AppConfig& config)
     {
-        return !config.centerLock ||
+        return config.lockMode == LockMode::ScreenBounds ||
             IsUsableUnlockHotkey(config.unlock) ||
             IsUsableToggleHotkey(config.toggleLock);
     }

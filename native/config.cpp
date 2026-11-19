@@ -536,8 +536,19 @@ AppConfig LoadConfig(const std::wstring& path)
             cfg.enabledStateConfigured = true;
         }
     if (const JsonValue* v = find(root.obj, "CenterLock"))
-        if (v->type == JsonValue::Type::Bool)
-            cfg.centerLock = v->b;
+        if (v->type == JsonValue::Type::Bool && v->b)
+            cfg.lockMode = LockMode::Center;
+    if (const JsonValue* v = find(root.obj, "LockMode"))
+        if (v->type == JsonValue::Type::Number &&
+            v->num >= static_cast<int>(LockMode::ScreenBounds) &&
+            v->num <= static_cast<int>(LockMode::Custom))
+            cfg.lockMode = static_cast<LockMode>(v->num);
+    if (const JsonValue* v = find(root.obj, "LockPositionX"))
+        if (v->type == JsonValue::Type::Number)
+            cfg.lockPoint.x = ClampLockPosition(v->num);
+    if (const JsonValue* v = find(root.obj, "LockPositionY"))
+        if (v->type == JsonValue::Type::Number)
+            cfg.lockPoint.y = ClampLockPosition(v->num);
     if (const JsonValue* v = find(root.obj, "ForegroundBinding"))
         if (v->type == JsonValue::Type::Bool)
             cfg.foregroundBinding = v->b;
@@ -606,7 +617,13 @@ bool SaveConfig(const std::wstring& path, const AppConfig& cfg)
     root.obj["Enabled"].type = JsonValue::Type::Bool;
     root.obj["Enabled"].b = cfg.enabled;
     root.obj["CenterLock"].type = JsonValue::Type::Bool;
-    root.obj["CenterLock"].b = cfg.centerLock;
+    root.obj["CenterLock"].b = cfg.lockMode == LockMode::Center;
+    root.obj["LockMode"].type = JsonValue::Type::Number;
+    root.obj["LockMode"].num = static_cast<int>(cfg.lockMode);
+    root.obj["LockPositionX"].type = JsonValue::Type::Number;
+    root.obj["LockPositionX"].num = ClampLockPosition(cfg.lockPoint.x);
+    root.obj["LockPositionY"].type = JsonValue::Type::Number;
+    root.obj["LockPositionY"].num = ClampLockPosition(cfg.lockPoint.y);
     root.obj["ForegroundBinding"].type = JsonValue::Type::Bool;
     root.obj["ForegroundBinding"].b = cfg.foregroundBinding;
     root.obj["HideTrayIcon"].type = JsonValue::Type::Bool;

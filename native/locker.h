@@ -2,6 +2,7 @@
 #pragma once
 
 #include <windows.h>
+#include "lock_position.h"
 
 class Locker
 {
@@ -9,16 +10,19 @@ public:
     bool IsLocked() const { return m_locked; }
 
     // 锁定到光标当前所在屏幕
-    bool LockToCurrentScreen(bool center = false);
+    bool LockToCurrentScreen(LockMode mode = LockMode::ScreenBounds,
+                             const NormalizedLockPoint& point = {});
 
     // 锁定到包含指定物理坐标的屏幕
-    bool LockToScreenAt(int x, int y, bool center = false);
+    bool LockToScreenAt(int x, int y, LockMode mode = LockMode::ScreenBounds,
+                        const NormalizedLockPoint& point = {});
 
     // 解除锁定；只有系统成功取消光标裁剪时才清除内部锁定状态
     bool Unlock();
 
     // 跳转到相邻屏幕（-1 上一个，+1 下一个）
-    bool Jump(int direction);
+    bool Jump(int direction, LockMode mode = LockMode::ScreenBounds,
+              const NormalizedLockPoint& point = {});
 
     // 备用校验：裁剪区域被外部修改或光标越界时立即恢复。
     // 鼠标按键按下期间也允许恢复，避免快速移动时穿过屏幕边界。
@@ -26,6 +30,7 @@ public:
 
 private:
     bool m_locked = false;
-    bool m_centerLocked = false;
+    LockMode m_lockMode = LockMode::ScreenBounds;
+    NormalizedLockPoint m_lockPoint;
     RECT m_lockedRect{};
 };

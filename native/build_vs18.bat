@@ -19,7 +19,7 @@ if errorlevel 1 (
 )
 
 echo Compiling C++ code...
-cl /nologo /O2 /utf-8 /EHsc /MT /std:c++17 /DUNICODE /D_UNICODE config.cpp locker.cpp settings.cpp logger.cpp main.cpp /Fe:MouseLock.exe /link /SUBSYSTEM:WINDOWS /MANIFEST:NO resources.res user32.lib shell32.lib advapi32.lib comctl32.lib gdi32.lib psapi.lib
+cl /nologo /O2 /utf-8 /EHsc /MT /std:c++17 /DUNICODE /D_UNICODE config.cpp locker.cpp settings.cpp logger.cpp lock_position_picker.cpp main.cpp /Fe:MouseLock.exe /link /SUBSYSTEM:WINDOWS /MANIFEST:NO resources.res user32.lib shell32.lib advapi32.lib comctl32.lib gdi32.lib psapi.lib
 if errorlevel 1 (
     echo ERROR: Compilation failed
     pause

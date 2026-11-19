@@ -63,15 +63,16 @@ namespace
     }
 }
 
-bool Locker::LockToCurrentScreen(bool center)
+bool Locker::LockToCurrentScreen(LockMode mode, const NormalizedLockPoint& point)
 {
     POINT pt{};
     if (!GetCursorPos(&pt))
         return false;
-    return LockToScreenAt(pt.x, pt.y, center);
+    return LockToScreenAt(pt.x, pt.y, mode, point);
 }
 
-bool Locker::LockToScreenAt(int x, int y, bool center)
+bool Locker::LockToScreenAt(int x, int y, LockMode mode,
+                            const NormalizedLockPoint& point)
 {
     POINT pt{ x, y };
     HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
@@ -88,25 +89,36 @@ bool Locker::LockToScreenAt(int x, int y, bool center)
 
     RECT rect = mi.rcMonitor;
 
-    if (center)
+    if (mode != LockMode::ScreenBounds)
     {
-        int cx = rect.left + (rect.right - rect.left) / 2;
-        int cy = rect.top + (rect.bottom - rect.top) / 2;
-        rect = { cx, cy, cx + 1, cy + 1 };
+        POINT lockPoint{};
+        if (mode == LockMode::Center)
+        {
+            lockPoint.x = rect.left + (rect.right - rect.left) / 2;
+            lockPoint.y = rect.top + (rect.bottom - rect.top) / 2;
+        }
+        else
+            lockPoint = MapNormalizedLockPoint(rect, point);
 
-        // Foreground events can request the same lock repeatedly. Avoid moving
-        // the cursor again when the existing centered lock is still valid.
-        if (m_locked && m_centerLocked && SameRect(m_lockedRect, rect) &&
+        rect = { lockPoint.x, lockPoint.y, lockPoint.x + 1, lockPoint.y + 1 };
+
+        // Foreground events can request the same point repeatedly. Avoid moving
+        // the cursor again when the existing point lock is still valid.
+        if (m_locked && m_lockMode == mode &&
+            (mode != LockMode::Custom ||
+                (m_lockPoint.x == point.x && m_lockPoint.y == point.y)) &&
+            SameRect(m_lockedRect, rect) &&
             IsClipCursorSetTo(rect))
             return true;
 
-        if (!CheckWin32Warn(SetCursorPos(cx, cy), L"SetCursorPos"))
+        if (!CheckWin32Warn(SetCursorPos(lockPoint.x, lockPoint.y), L"SetCursorPos"))
             return false;
     }
 
     // Reapplying the same clip rectangle is observable by some applications
     // as cursor activity. Keep a stable lock stable across timer/event ticks.
-    if (!center && m_locked && !m_centerLocked && SameRect(m_lockedRect, rect) &&
+    if (mode == LockMode::ScreenBounds && m_locked &&
+        m_lockMode == LockMode::ScreenBounds && SameRect(m_lockedRect, rect) &&
         IsClipCursorSetTo(rect))
         return true;
 
@@ -115,7 +127,8 @@ bool Locker::LockToScreenAt(int x, int y, bool center)
 
     m_lockedRect = rect;
     m_locked = true;
-    m_centerLocked = center;
+    m_lockMode = mode;
+    m_lockPoint = point;
     return true;
 }
 
@@ -125,12 +138,13 @@ bool Locker::Unlock()
         return false;
 
     m_locked = false;
-    m_centerLocked = false;
+    m_lockMode = LockMode::ScreenBounds;
+    m_lockPoint = {};
     m_lockedRect = {};
     return true;
 }
 
-bool Locker::Jump(int direction)
+bool Locker::Jump(int direction, LockMode mode, const NormalizedLockPoint& point)
 {
     auto monitors = GetMonitors();
     if (monitors.size() < 2)
@@ -159,7 +173,7 @@ bool Locker::Jump(int direction)
     if (!CheckWin32Warn(SetCursorPos(cx, cy), L"Jump: SetCursorPos"))
         return false;
 
-    return LockToScreenAt(cx, cy, m_centerLocked);
+    return LockToScreenAt(cx, cy, mode, point);
 }
 
 void Locker::Revalidate(bool forceCursorCorrection, const POINT* observedCursor)
